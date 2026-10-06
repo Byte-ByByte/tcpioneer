@@ -1,0 +1,23 @@
+{
+  "name": "@tcpioneer/cli",
+  "version": "0.0.1",
+  "description": "CLI wrapper for TCPIOneer",
+  "license": "MIT",
+  "author": "Byte-ByByte",
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node dist/main.js",
+    "build": "npx tsup && tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "builtin-modules": "^5.4.0",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@tcpioneer/core": "*"
+  }
+}

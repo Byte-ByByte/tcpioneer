@@ -1,0 +1,25 @@
+{
+  "name": "@tcpioneer/core",
+  "version": "0.0.1",
+  "description": "A remote-desktop host that can be accessible through HTTP, good for LLMs",
+  "license": "MIT",
+  "author": "Byte-ByByte",
+  "type": "commonjs",
+  "main": "./dist/host.js",
+  "module": "./dist/host.mjs",
+  "types": "./dist/host.d.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node dist/main.js",
+    "build": "npx tsup && tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "builtin-modules": "^5.4.0",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "chalk": "^6.0.1"
+  }
+}

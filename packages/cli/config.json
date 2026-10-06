@@ -1,0 +1,21 @@
+{
+    "server": {
+        "host": "127.0.0.1",
+        "port": 3420
+    },
+    "security": {
+        "token": "aabbccdd"
+    },
+    "log-options": {
+        "shown-severities": {
+            "debug": true,
+            "info": true,
+            "notice": true,
+            "warn": true,
+            "error": true,
+            "critical": true,
+            "alert": true,
+            "emergency": true
+        }
+    }
+}
