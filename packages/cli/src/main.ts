@@ -1,15 +1,31 @@
 import * as core from "@tcpioneer/core";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
+import * as path from "node:path";
 import * as logger from "./util/logger";
 import HostConfig from "./util/config";
 
 async function readConfig(): Promise<HostConfig | undefined> {
-    try {
-        let data = await readFile('config.json', 'utf8');
-        return JSON.parse(data);
-    } catch (error) {
-        console.error('Error reading config:', error instanceof Error ? error.message : String(error));
+    const candidates = [
+        path.resolve(process.cwd(), "config.json"),
+        path.resolve(__dirname, "..", "config.json"),
+        path.resolve(__dirname, "config.json")
+    ];
+
+    for (const candidate of candidates) {
+        try {
+            await access(candidate);
+            const data = await readFile(candidate, "utf8");
+            return JSON.parse(data);
+        } catch (error) {
+            if (error instanceof SyntaxError) {
+                console.error(`Invalid JSON in config file ${candidate}: ${error.message}`);
+                return undefined;
+            }
+            // Try the next candidate.
+        }
     }
+
+    return undefined;
 }
 
 (async () => {
@@ -51,7 +67,12 @@ async function readConfig(): Promise<HostConfig | undefined> {
         }
     };
 
-    const Host: core.Host = new core.Host(hostConfig);
+    const host: core.Host = new core.Host(hostConfig);
 
-    Host.start();
+    try {
+        await host.start();
+    } catch (error) {
+        console.error("Failed to start TCPIOneer:", error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+    }
 })();

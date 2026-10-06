@@ -9,7 +9,7 @@ In this document is a guide on:
 * Authentication
 * Session lifecycle
 * Commands
-* Capabilities
+* [Desktop Control API](/guide/capabilities)
 * Endpoints
 
 This document should be able to guide you through operating TCPIOneer, whether you're a human, LLM, or anything with HTTP.
@@ -47,7 +47,7 @@ and server policy may also affect whether a request is permitted.
 > **IMPORTANT:** If a server operator needs to rotate a token, it's best to do so through TCPIOneer's CLI options rather than editing `config.json` manually, since cryptographic random generation is built into TCPIOneer.
 
 ## Session Lifecycle
-Sessions are the **authorization context** used to access the remote desktop, and **without them, you cannot use the remote desktop**. 
+Sessions are the **authorization context** used to access the remote desktop, and **without them, you cannot use the remote desktop**.
 
 One client is not bound to one session; **a client may have multiple sessions**.
 
@@ -117,19 +117,9 @@ A session may be deleted by the server or the client, though the difference is t
 
 The client will discover a session deletion on the next attempt to use it and **must** stop attempts to use the session key.
 
-## Capabilities
+## Desktop Control
 
-Capabilities in TCPIOneer define which operations clients can do on a host.
-Capabilities are defined in the server's `capabilities.json`. Capabilities include:
-
-* Mouse control
-* Keypress and type control
-* On-demand screenshot access
-* Terminal access
-
-The client **CANNOT** execute operations that are not permitted by the file.
-
-More specific information can be found at [Capabilities](/guide/capabilities).
+Authenticated clients can send mouse and keyboard actions and request screenshots through the [Desktop Control API](/guide/capabilities). These routes provide direct desktop input and screen access, so keep the server private and use a strong token.
 
 ## Endpoints
 

@@ -1,0 +1,54 @@
+name: TCPIOneer CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  windows-build-and-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke test the booted server
+        shell: pwsh
+        run: |
+          $server = Start-Process -FilePath "node" -ArgumentList ".\packages\cli\dist\main.js" -WorkingDirectory $PWD -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              if ($server.HasExited) {
+                throw "TCPIOneer exited before becoming ready (exit code $($server.ExitCode))."
+              }
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:3420/helloworld" -TimeoutSec 2
+                if ($response.StatusCode -eq 200 -and $response.Content -eq "Hello, world!") {
+                  $ready = $true
+                  break
+                }
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if (-not $ready) {
+              throw "TCPIOneer did not respond successfully at http://127.0.0.1:3420/helloworld."
+            }
+          } finally {
+            if (-not $server.HasExited) {
+              Stop-Process -Id $server.Id
+            }
+          }

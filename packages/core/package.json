@@ -8,9 +8,16 @@
   "main": "./dist/host.js",
   "module": "./dist/host.mjs",
   "types": "./dist/host.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.mjs",
+      "require": "./dist/host.js"
+    }
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node dist/main.js",
+    "test": "npm run build",
+    "start": "node dist/host.js",
     "build": "npx tsup && tsc"
   },
   "devDependencies": {
