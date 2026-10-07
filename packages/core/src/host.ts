@@ -30,12 +30,14 @@ export class Host {
     private token: string;
     private readonly sessions = new Map<string, SessionEntry>();
     private readonly sessionTtlMs = 60 * 60 * 1000;
+    guideLocation: string;
 
     constructor(config: HostConfig) {
         this.logger = config.logger
         this.host = config.server.host
         this.port = config.server.port
         this.token = config.server.token
+        this.guideLocation = config.server.guide.location
     }
 
     async start() {

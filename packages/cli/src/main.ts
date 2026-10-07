@@ -2,9 +2,9 @@ import * as core from "@tcpioneer/core";
 import { access, readFile } from "node:fs/promises";
 import * as path from "node:path";
 import * as logger from "./util/logger";
-import HostConfig from "./util/config";
+import ConfigFile from "./util/config";
 
-async function readConfig(): Promise<HostConfig | undefined> {
+async function readConfig(): Promise<ConfigFile | undefined> {
     const candidates = [
         path.resolve(process.cwd(), "config.json"),
         path.resolve(__dirname, "..", "config.json"),
@@ -63,7 +63,10 @@ async function readConfig(): Promise<HostConfig | undefined> {
         server: {
             host: config.server.host,
             port: config.server.port,
-            token: config.security.token
+            token: config.security.token,
+            guide: {
+                location: config.guide.location
+            }
         }
     };
 

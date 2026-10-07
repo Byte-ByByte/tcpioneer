@@ -1,4 +1,4 @@
-type HostConfig = {
+type ConfigFile = {
     "server": {
         "host": string,
         "port": number
@@ -17,7 +17,10 @@ type HostConfig = {
             "alert": true,
             "emergency": true
         }
+    },
+    "guide": {
+        "location": "./guide"
     }
 }
 
-export default HostConfig;
+export default ConfigFile;

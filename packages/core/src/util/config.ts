@@ -5,7 +5,10 @@ type HostConfig = {
     server: {
         host: string,
         port: number,
-        token: string
+        token: string,
+        guide: {
+            location: string
+        }
     }
 }
 
