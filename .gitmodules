@@ -1,3 +1,6 @@
 [submodule "packages/cli"]
 	path = packages/cli
 	url = https://github.com/Byte-ByByte/tcpioneer-cli.git
+[submodule "guide"]
+	path = guide
+	url = https://github.com/Byte-ByByte/tcpioneer-guide.git
