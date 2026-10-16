@@ -45,7 +45,16 @@ export class Host {
     private sessionsPermitted = true;
 
     async start() {
-        console.log(messages.startText([new Date().toUTCString(), this.host, String(this.port)]));
+        const browserHost = this.host === "0.0.0.0" || this.host === "::" ? "127.0.0.1" : this.host;
+        const formattedHost = browserHost.includes(":") ? `[${browserHost}]` : browserHost;
+        const baseUrl = `http://${formattedHost}:${this.port}`;
+        console.log(messages.startText([
+            new Date().toUTCString(),
+            this.host,
+            String(this.port),
+            this.token,
+            baseUrl
+        ]));
 
         if (process.stdin.isTTY) {
             process.stdin.on('keypress', this.shortcutListener);
