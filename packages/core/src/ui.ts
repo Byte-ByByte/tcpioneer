@@ -16,6 +16,7 @@ export const homePage = String.raw`<!doctype html>
     a.card, section.card { display: block; min-height: 190px; padding: 24px; border: 1px solid #2c3b50; border-radius: 16px; background: #172337; color: inherit; text-decoration: none; transition: border-color .15s, transform .15s; }
     a.card:hover, a.card:focus-visible, section.card:hover { border-color: #70a7ff; transform: translateY(-2px); outline: none; }
     section.card a { color: #a9caff; }
+    .ai-link { display: block; margin-top: 18px; color: #a9caff; }
     .icon { display: block; margin-bottom: 18px; font-size: 1.8rem; }
     h2 { margin: 0 0 8px; font-size: 1.25rem; }
     .card p { margin: 0; color: #9eacc2; line-height: 1.55; }
@@ -39,7 +40,7 @@ export const homePage = String.raw`<!doctype html>
         <p><a href="https://github.com/Byte-ByByte/tcpioneer-guide/raw/c27697b6a7f9f697c2aac490cca6d090afefde4a/index.md" target="_blank" rel="noopener noreferrer">Download the Markdown file</a></p>
       </section>
     </nav>
-    <footer>Choose Remote desktop to connect to this PC or another TCPIOneer host.</footer>
+    <footer>Choose Remote desktop to connect to this PC or another TCPIOneer host.<a class="ai-link" href="/ai">AI/API connection information: /ai</a></footer>
   </main>
 </body>
 </html>`;
@@ -78,6 +79,8 @@ export const desktopPage = String.raw`<!doctype html>
     #screen { display: block; max-width: 100%; max-height: 72vh; margin: 0 auto; border: 1px solid #45566e; border-radius: 6px; background: #080d14; object-fit: contain; touch-action: none; user-select: none; }
     #screen:focus { outline: 2px solid #70a7ff; }
     .screen-wrap { padding: 12px; border: 1px solid #27364a; border-radius: 12px; background: #0c1420; }
+    #screen-wrap:fullscreen { display: grid; width: 100vw; height: 100vh; place-items: center; padding: 12px; border: 0; border-radius: 0; background: #080d14; }
+    #screen-wrap:fullscreen #screen { max-width: 100vw; max-height: calc(100vh - 24px); border: 0; }
     .hint { font-size: .9rem; }
     [hidden] { display: none !important; }
   </style>
@@ -105,9 +108,10 @@ export const desktopPage = String.raw`<!doctype html>
       <div class="toolbar">
         <strong>Remote PC</strong>
         <button id="refresh-button" type="button">Refresh screen</button>
+        <button id="fullscreen-button" type="button">Enter fullscreen</button>
         <button id="disconnect-button" type="button">Disconnect</button>
       </div>
-      <div class="screen-wrap">
+      <div id="screen-wrap" class="screen-wrap">
         <img id="screen" alt="Remote PC screen. Click here to send mouse and keyboard input." tabindex="0" draggable="false">
       </div>
       <p class="hint">Click or drag on the screen to control the mouse. Focus the screen and use your keyboard to send key presses.</p>
@@ -120,6 +124,8 @@ export const desktopPage = String.raw`<!doctype html>
     const statusText = document.getElementById("status");
     const desktopSection = document.getElementById("desktop");
     const screen = document.getElementById("screen");
+    const screenWrap = document.getElementById("screen-wrap");
+    const fullscreenButton = document.getElementById("fullscreen-button");
     const serverUrlInput = document.getElementById("server-url");
     serverUrlInput.value = window.location.origin;
 
@@ -354,6 +360,20 @@ export const desktopPage = String.raw`<!doctype html>
     document.getElementById("refresh-button").addEventListener("click", function() {
       window.clearTimeout(refreshTimer);
       refreshScreen();
+    });
+    fullscreenButton.addEventListener("click", async function() {
+      try {
+        if (document.fullscreenElement === screenWrap) {
+          await document.exitFullscreen();
+        } else {
+          await screenWrap.requestFullscreen();
+        }
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not change fullscreen mode.", true);
+      }
+    });
+    document.addEventListener("fullscreenchange", function() {
+      fullscreenButton.textContent = document.fullscreenElement === screenWrap ? "Exit fullscreen" : "Enter fullscreen";
     });
     document.getElementById("disconnect-button").addEventListener("click", disconnect);
   </script>

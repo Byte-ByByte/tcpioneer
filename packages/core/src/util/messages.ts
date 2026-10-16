@@ -14,6 +14,8 @@ export const startText: TextGenerator = (textinput) => {
 
     ${chalk.blue("-- AI/API Connection --")}
     ${chalk.green("Base URL: ")} ${textinput[4]}
+    ${chalk.green("AI instructions: ")} GET ${textinput[4]}/ai
+    ${chalk.green("Verify token: ")} GET ${textinput[4]}/api/v1/auth-check
     ${chalk.green("Authorization: ")} Bearer ${textinput[3]}
     ${chalk.green("Request session: ")} POST ${textinput[4]}/api/v1/request-session
     ${chalk.green("Control desktop: ")} POST ${textinput[4]}/api/v1/control

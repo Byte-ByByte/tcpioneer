@@ -9,6 +9,35 @@ import { Logger, LogSeverity } from "./util/logger";
 import { captureScreenshot, DesktopInputError, DesktopUnsupportedError, performDesktopAction } from "./desktop";
 import { desktopPage, homePage } from "./ui";
 
+const aiApiDescription = {
+    service: "TCPIOneer",
+    authentication: {
+        type: "Bearer",
+        header: "Authorization",
+        format: "Bearer <access-token>",
+        verify: {
+            method: "GET",
+            path: "/api/v1/auth-check",
+            success: { status: 200, body: { ok: true, authenticated: true } },
+            invalidTokenStatus: 401
+        }
+    },
+    session: {
+        create: { method: "POST", path: "/api/v1/request-session", body: {} },
+        inspect: { method: "GET", path: "/api/v1/session?session=<session-id>" },
+        delete: { method: "DELETE", path: "/api/v1/session?session=<session-id>" }
+    },
+    desktop: {
+        control: {
+            method: "POST",
+            path: "/api/v1/control",
+            body: { session: "<session-id>", action: { action: "mouse.click", button: "left" } }
+        },
+        screenshot: { method: "POST", path: "/api/v1/screenshot", body: { session: "<session-id>" } }
+    },
+    security: "Send the access token only in the Authorization bearer header, never in the URL."
+};
+
 type SessionEntry = {
     createdAt: number;
     expiresAt: number;
@@ -123,6 +152,13 @@ export class Host {
             return;
         }
 
+        if (req.method === "GET" && url.pathname === "/ai") {
+            this.sendJson(res, 200, aiApiDescription, {
+                "cache-control": "no-store"
+            });
+            return;
+        }
+
         if (requestUrl && this.checkForGuide(requestUrl)) {
             const guideRoot = path.isAbsolute(this.guideLocation)
                 ? this.guideLocation
@@ -162,6 +198,20 @@ export class Host {
 
         if (req.method === "POST" && url.pathname === "/api/v1/request-session") {
             await this.handleRequestSession(req, res);
+            return;
+        }
+
+        if (req.method === "GET" && url.pathname === "/api/v1/auth-check") {
+            if (!this.hasValidBearerToken(req)) {
+                this.sendJson(res, 401, { ok: false, authenticated: false, error: "invalid or missing Authorization bearer token" }, {
+                    "cache-control": "no-store"
+                });
+                return;
+            }
+
+            this.sendJson(res, 200, { ok: true, authenticated: true }, {
+                "cache-control": "no-store"
+            });
             return;
         }
 
