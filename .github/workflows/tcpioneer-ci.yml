@@ -1,24 +1,145 @@
+
 name: TCPIOneer CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tcpioneer-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows-build-and-smoke:
+    name: Windows build and smoke test
     runs-on: windows-latest
+    timeout-minutes: 15
+
     steps:
-      - name: Check out repository
+      - name: Check out main repository
         uses: actions/checkout@v4
         with:
-          submodules: 'recursive'
+          submodules: false
+          fetch-depth: 1
+
+      - name: Restore submodules safely
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if (-not (Test-Path ".gitmodules")) {
+            throw "Missing .gitmodules file."
+          }
+
+          $entries = @(& git config -f .gitmodules --get-regexp '^submodule\..*\.path$')
+          if ($LASTEXITCODE -ne 0 -or $entries.Count -eq 0) {
+            throw "No submodule paths were found in .gitmodules."
+          }
+
+          foreach ($entry in $entries) {
+            $parts = $entry -split '\s+', 2
+            $name = $parts[0] -replace '^submodule\.', '' -replace '\.path$', ''
+            $path = $parts[1]
+
+            $url = & git config -f .gitmodules --get "submodule.$name.url"
+            if ($LASTEXITCODE -ne 0 -or -not $url) {
+              throw "No URL configured for submodule $name."
+            }
+
+            $treeLine = & git ls-tree HEAD -- $path
+            if ($LASTEXITCODE -ne 0 -or $treeLine -notmatch '^160000 commit ([0-9a-f]+)') {
+              throw "Could not find the pinned commit for submodule $path."
+            }
+            $sha = $Matches[1]
+
+            Write-Host "Restoring $path at pinned commit $sha"
+
+            if (Test-Path $path) {
+              Remove-Item $path -Recurse -Force
+            }
+
+            $parent = Split-Path $path -Parent
+            if ($parent -and -not (Test-Path $parent)) {
+              New-Item -ItemType Directory -Path $parent -Force | Out-Null
+            }
+
+            & git clone --no-checkout $url $path
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not clone submodule $path from $url."
+            }
+
+            # Prefer the exact commit recorded by the main repository.
+            & git -C $path fetch --no-tags origin $sha 2>$null
+
+            if ($LASTEXITCODE -eq 0) {
+              & git -C $path checkout --detach $sha
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not check out pinned commit $sha in $path."
+              }
+              Write-Host "Pinned commit restored: $path"
+            }
+            else {
+              # Recovery only: use the remote's advertised default branch.
+              Write-Warning "Pinned commit unavailable for $path. Trying its default branch."
+
+              $remoteHead = @(& git ls-remote --symref $url HEAD)
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not discover the default branch for $url."
+              }
+
+              $headLine = $remoteHead | Where-Object { $_ -match '^ref: refs/heads/(\S+)\s+HEAD$' } | Select-Object -First 1
+              if (-not $headLine -or $headLine -notmatch '^ref: refs/heads/(\S+)\s+HEAD$') {
+                throw "Could not determine the default branch for $url."
+              }
+              $branch = $Matches[1]
+
+              & git -C $path fetch --no-tags origin $branch
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not fetch fallback branch $branch for $path."
+              }
+
+              & git -C $path checkout --detach FETCH_HEAD
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not check out fallback branch for $path."
+              }
+
+              Write-Warning "Using fallback branch $branch for $path. Compatibility must be verified by the build."
+            }
+          }
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Verify environment and project files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          node --version
+          if ($LASTEXITCODE -ne 0) { throw "Node.js is unavailable." }
+
+          npm --version
+          if ($LASTEXITCODE -ne 0) { throw "npm is unavailable." }
+
+          $required = @(
+            "package.json",
+            "package-lock.json",
+            "packages/cli/package.json"
+          )
+
+          foreach ($file in $required) {
+            if (-not (Test-Path $file)) {
+              throw "Required project file is missing: $file"
+            }
+          }
 
       - name: Install dependencies
         run: npm ci
@@ -26,31 +147,86 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "packages/cli/dist/main.js")) {
+            throw "Build did not produce packages/cli/dist/main.js."
+          }
+
       - name: Smoke test the booted server
         shell: pwsh
         run: |
-          $server = Start-Process -FilePath "node" -ArgumentList ".\packages\cli\dist\main.js" -WorkingDirectory $PWD -PassThru
+          $ErrorActionPreference = "Stop"
+
+          $stdout = Join-Path $env:RUNNER_TEMP "tcpioneer-stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "tcpioneer-stderr.log"
+          Remove-Item $stdout, $stderr -Force -ErrorAction SilentlyContinue
+
+          $server = $null
+
           try {
+            $server = Start-Process `
+              -FilePath "node" `
+              -ArgumentList ".\packages\cli\dist\main.js" `
+              -WorkingDirectory $PWD `
+              -RedirectStandardOutput $stdout `
+              -RedirectStandardError $stderr `
+              -PassThru
+
             $ready = $false
+
             for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              $server.Refresh()
+
               if ($server.HasExited) {
-                throw "TCPIOneer exited before becoming ready (exit code $($server.ExitCode))."
+                throw "TCPIOneer exited early with code $($server.ExitCode)."
               }
+
               try {
-                $response = Invoke-WebRequest -Uri "http://127.0.0.1:3420/helloworld" -TimeoutSec 2
-                if ($response.StatusCode -eq 200 -and $response.Content -eq "Hello, world!") {
+                $response = Invoke-WebRequest `
+                  -Uri "http://127.0.0.1:3420/helloworld" `
+                  -TimeoutSec 2 `
+                  -UseBasicParsing
+
+                if (
+                  $response.StatusCode -eq 200 -and
+                  $response.Content.Trim() -eq "Hello, world!"
+                ) {
                   $ready = $true
                   break
                 }
-              } catch {
-                Start-Sleep -Seconds 1
               }
+              catch {
+                # The server may still be starting. Retry.
+              }
+
+              Start-Sleep -Seconds 1
             }
+
             if (-not $ready) {
-              throw "TCPIOneer did not respond successfully at http://127.0.0.1:3420/helloworld."
+              throw "Server did not return HTTP 200 and the expected response within the startup window."
             }
-          } finally {
-            if (-not $server.HasExited) {
-              Stop-Process -Id $server.Id
+
+            Write-Host "PASS: /helloworld returned the expected response."
+          }
+          catch {
+            Write-Host "::group::TCPIOneer stdout"
+            if (Test-Path $stdout) { Get-Content $stdout }
+            Write-Host "::endgroup::"
+
+            Write-Host "::group::TCPIOneer stderr"
+            if (Test-Path $stderr) { Get-Content $stderr }
+            Write-Host "::endgroup::"
+
+            throw
+          }
+          finally {
+            if ($server) {
+              $server.Refresh()
+              if (-not $server.HasExited) {
+                Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+                Wait-Process -Id $server.Id -Timeout 5 -ErrorAction SilentlyContinue
+              }
             }
           }
