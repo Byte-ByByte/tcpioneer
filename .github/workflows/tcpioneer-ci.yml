@@ -1,114 +1,136 @@
 
-name: TCPIOneer CI
+name: TCPIOneer CI and Release
 
 on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Release version (for example v1.0.0)"
+        required: true
+        default: "v1.0.0"
+        type: string
+      release_title:
+        description: "Title displayed on the GitHub Release"
+        required: true
+        default: "TCPIOneer Release"
+        type: string
+      release_notes:
+        description: "Write the release notes"
+        required: true
+        default: "TCPIOneer release. See the attached ZIP for source files."
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: tcpioneer-ci-${{ github.ref }}
+  group: tcpioneer-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   windows-build-and-smoke:
-    name: Windows build and smoke test
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
-      - name: Check out main repository
+      - name: Check out repository
         uses: actions/checkout@v4
         with:
           submodules: false
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Restore submodules safely
+      - name: Restore submodules
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-
           if (-not (Test-Path ".gitmodules")) {
-            throw "Missing .gitmodules file."
+            Write-Host "No submodules file found."
+            exit 0
           }
 
-          $entries = @(& git config -f .gitmodules --get-regexp '^submodule\..*\.path$')
-          if ($LASTEXITCODE -ne 0 -or $entries.Count -eq 0) {
-            throw "No submodule paths were found in .gitmodules."
+          $entries = @(git config -f .gitmodules --get-regexp '^submodule\..*\.path$')
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "No submodule paths found."
+            exit 0
           }
 
           foreach ($entry in $entries) {
             $parts = $entry -split '\s+', 2
             $name = $parts[0] -replace '^submodule\.', '' -replace '\.path$', ''
             $path = $parts[1]
+            $url = git config -f .gitmodules --get "submodule.$name.url"
 
-            $url = & git config -f .gitmodules --get "submodule.$name.url"
-            if ($LASTEXITCODE -ne 0 -or -not $url) {
-              throw "No URL configured for submodule $name."
+            if (-not $url) {
+              throw "No URL found for submodule $path"
             }
-
-            $treeLine = & git ls-tree HEAD -- $path
-            if ($LASTEXITCODE -ne 0 -or $treeLine -notmatch '^160000 commit ([0-9a-f]+)') {
-              throw "Could not find the pinned commit for submodule $path."
-            }
-            $sha = $Matches[1]
-
-            Write-Host "Restoring $path at pinned commit $sha"
 
             if (Test-Path $path) {
               Remove-Item $path -Recurse -Force
             }
 
-            $parent = Split-Path $path -Parent
-            if ($parent -and -not (Test-Path $parent)) {
-              New-Item -ItemType Directory -Path $parent -Force | Out-Null
-            }
-
-            & git clone --no-checkout $url $path
+            git clone --no-checkout $url $path
             if ($LASTEXITCODE -ne 0) {
-              throw "Could not clone submodule $path from $url."
+              throw "Could not clone submodule $path"
             }
 
-            # Prefer the exact commit recorded by the main repository.
-            & git -C $path fetch --no-tags origin $sha 2>$null
-
-            if ($LASTEXITCODE -eq 0) {
-              & git -C $path checkout --detach $sha
-              if ($LASTEXITCODE -ne 0) {
-                throw "Could not check out pinned commit $sha in $path."
-              }
-              Write-Host "Pinned commit restored: $path"
+            $treeLine = git ls-tree HEAD -- "$path"
+            $sha = $null
+            if ($treeLine -match '^160000 commit ([0-9a-f]+)') {
+              $sha = $Matches[1]
             }
-            else {
-              # Recovery only: use the remote's advertised default branch.
-              Write-Warning "Pinned commit unavailable for $path. Trying its default branch."
 
-              $remoteHead = @(& git ls-remote --symref $url HEAD)
-              if ($LASTEXITCODE -ne 0) {
-                throw "Could not discover the default branch for $url."
+            $checkedOut = $false
+
+            if ($sha) {
+              git -C $path fetch --no-tags origin $sha 2>$null
+              if ($LASTEXITCODE -eq 0) {
+                git -C $path checkout --detach $sha
+                $checkedOut = ($LASTEXITCODE -eq 0)
               }
-
-              $headLine = $remoteHead | Where-Object { $_ -match '^ref: refs/heads/(\S+)\s+HEAD$' } | Select-Object -First 1
-              if (-not $headLine -or $headLine -notmatch '^ref: refs/heads/(\S+)\s+HEAD$') {
-                throw "Could not determine the default branch for $url."
-              }
-              $branch = $Matches[1]
-
-              & git -C $path fetch --no-tags origin $branch
-              if ($LASTEXITCODE -ne 0) {
-                throw "Could not fetch fallback branch $branch for $path."
-              }
-
-              & git -C $path checkout --detach FETCH_HEAD
-              if ($LASTEXITCODE -ne 0) {
-                throw "Could not check out fallback branch for $path."
-              }
-
-              Write-Warning "Using fallback branch $branch for $path. Compatibility must be verified by the build."
             }
+
+            if (-not $checkedOut) {
+              Write-Warning "Pinned commit unavailable for $path; trying the remote default branch."
+              $head = git -C $path ls-remote --symref origin HEAD
+              $branchLine = $head | Where-Object { $_ -match '^ref: refs/heads/' } | Select-Object -First 1
+
+              if (-not $branchLine) {
+                throw "Could not find the default branch for $path"
+              }
+
+              $branch = ($branchLine -split '\s+')[1] -replace '^refs/heads/', ''
+              git -C $path fetch --no-tags origin $branch
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not fetch submodule $path"
+              }
+
+              git -C $path checkout --detach FETCH_HEAD
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not check out submodule $path"
+              }
+            }
+          }
+
+      - name: Validate release information
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_TITLE: ${{ inputs.release_title }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          if ($env:RELEASE_VERSION -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$') {
+            throw "Version must look like v1.0.0 or v1.2.0-beta.1"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_TITLE)) {
+            throw "Release title cannot be empty."
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) {
+            throw "Release notes cannot be empty."
           }
 
       - name: Set up Node.js
@@ -118,26 +140,12 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Verify environment and project files
+      - name: Check required files
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-
-          node --version
-          if ($LASTEXITCODE -ne 0) { throw "Node.js is unavailable." }
-
-          npm --version
-          if ($LASTEXITCODE -ne 0) { throw "npm is unavailable." }
-
-          $required = @(
-            "package.json",
-            "package-lock.json",
-            "packages/cli/package.json"
-          )
-
-          foreach ($file in $required) {
+          foreach ($file in @("package.json", "package-lock.json", "packages/cli/package.json")) {
             if (-not (Test-Path $file)) {
-              throw "Required project file is missing: $file"
+              throw "Required file is missing: $file"
             }
           }
 
@@ -147,38 +155,30 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Verify build output
+      - name: Check CLI build output
         shell: pwsh
         run: |
           if (-not (Test-Path "packages/cli/dist/main.js")) {
-            throw "Build did not produce packages/cli/dist/main.js."
+            throw "Build did not produce packages/cli/dist/main.js"
           }
 
       - name: Smoke test the booted server
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-
           $stdout = Join-Path $env:RUNNER_TEMP "tcpioneer-stdout.log"
           $stderr = Join-Path $env:RUNNER_TEMP "tcpioneer-stderr.log"
-          Remove-Item $stdout, $stderr -Force -ErrorAction SilentlyContinue
 
-          $server = $null
+          $server = Start-Process -FilePath "node" `
+            -ArgumentList ".\packages\cli\dist\main.js" `
+            -WorkingDirectory $PWD `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr `
+            -PassThru
 
           try {
-            $server = Start-Process `
-              -FilePath "node" `
-              -ArgumentList ".\packages\cli\dist\main.js" `
-              -WorkingDirectory $PWD `
-              -RedirectStandardOutput $stdout `
-              -RedirectStandardError $stderr `
-              -PassThru
-
             $ready = $false
 
             for ($attempt = 0; $attempt -lt 30; $attempt++) {
-              $server.Refresh()
-
               if ($server.HasExited) {
                 throw "TCPIOneer exited early with code $($server.ExitCode)."
               }
@@ -186,47 +186,131 @@ jobs:
               try {
                 $response = Invoke-WebRequest `
                   -Uri "http://127.0.0.1:3420/helloworld" `
-                  -TimeoutSec 2 `
-                  -UseBasicParsing
+                  -TimeoutSec 2
 
-                if (
-                  $response.StatusCode -eq 200 -and
-                  $response.Content.Trim() -eq "Hello, world!"
-                ) {
+                if ($response.StatusCode -eq 200 -and
+                    $response.Content.Trim() -eq "Hello, world!") {
                   $ready = $true
                   break
                 }
+              } catch {
+                Start-Sleep -Seconds 1
               }
-              catch {
-                # The server may still be starting. Retry.
-              }
-
-              Start-Sleep -Seconds 1
             }
 
             if (-not $ready) {
-              throw "Server did not return HTTP 200 and the expected response within the startup window."
+              Write-Host "Server stdout:"
+              if (Test-Path $stdout) { Get-Content $stdout }
+              Write-Host "Server stderr:"
+              if (Test-Path $stderr) { Get-Content $stderr }
+              throw "Smoke test failed."
             }
-
-            Write-Host "PASS: /helloworld returned the expected response."
+          } finally {
+            if (-not $server.HasExited) {
+              Stop-Process -Id $server.Id -Force
+            }
           }
-          catch {
-            Write-Host "::group::TCPIOneer stdout"
-            if (Test-Path $stdout) { Get-Content $stdout }
-            Write-Host "::endgroup::"
 
-            Write-Host "::group::TCPIOneer stderr"
-            if (Test-Path $stderr) { Get-Content $stderr }
-            Write-Host "::endgroup::"
+      - name: Package source into ZIP
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          $root = (Resolve-Path ".").Path
+          $zipName = "TCPIOneer-source-$env:RELEASE_VERSION.zip"
+          $zipPath = Join-Path $root $zipName
 
-            throw
+          if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
           }
-          finally {
-            if ($server) {
-              $server.Refresh()
-              if (-not $server.HasExited) {
-                Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
-                Wait-Process -Id $server.Id -Timeout 5 -ErrorAction SilentlyContinue
+
+          $excludedDirectories = @(
+            ".git",
+            ".idea",
+            ".github/workflows",
+            "guide"
+          )
+
+          $excludedFiles = @(
+            ".gitignore",
+            ".gitmodules",
+            $zipName
+          )
+
+          $stream = [System.IO.File]::Open(
+            $zipPath,
+            [System.IO.FileMode]::CreateNew
+          )
+
+          try {
+            $archive = [System.IO.Compression.ZipArchive]::new(
+              $stream,
+              [System.IO.Compression.ZipArchiveMode]::Create
+            )
+
+            try {
+              $files = Get-ChildItem -LiteralPath $root -File -Recurse -Force
+
+              foreach ($file in $files) {
+                $relative = [System.IO.Path]::GetRelativePath(
+                  $root, $file.FullName
+                ).Replace('\', '/')
+
+                $skip = $false
+
+                foreach ($directory in $excludedDirectories) {
+                  if ($relative -eq $directory -or
+                      $relative.StartsWith("$directory/")) {
+                    $skip = $true
+                    break
+                  }
+                }
+
+                if ($skip) { continue }
+
+                $segments = $relative.Split('/')
+                if ($segments -contains ".git") { continue }
+
+                if ($excludedFiles -contains $relative) { continue }
+
+                $entry = $archive.CreateEntry(
+                  $relative,
+                  [System.IO.Compression.CompressionLevel]::Optimal
+                )
+
+                $inputStream = [System.IO.File]::OpenRead($file.FullName)
+                try {
+                  $outputStream = $entry.Open()
+                  try {
+                    $inputStream.CopyTo($outputStream)
+                  } finally {
+                    $outputStream.Dispose()
+                  }
+                } finally {
+                  $inputStream.Dispose()
+                }
               }
+            } finally {
+              $archive.Dispose()
             }
+          } finally {
+            $stream.Dispose()
           }
+
+          Write-Host "Created $zipName"
+          Get-Item $zipPath | Select-Object Name, Length
+
+      - name: Create GitHub Release and upload ZIP
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ inputs.release_version }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ inputs.release_title }}
+          body: ${{ inputs.release_notes }}
+          files: TCPIOneer-source-${{ inputs.release_version }}.zip
+          draft: false
+          prerelease: ${{ contains(inputs.release_version, '-') }}
