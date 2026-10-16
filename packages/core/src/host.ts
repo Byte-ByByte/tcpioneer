@@ -7,6 +7,7 @@ import * as messages from "./util/messages"
 import * as path from "node:path"
 import { Logger, LogSeverity } from "./util/logger";
 import { captureScreenshot, DesktopInputError, DesktopUnsupportedError, performDesktopAction } from "./desktop";
+import { desktopPage, homePage } from "./ui";
 
 type SessionEntry = {
     createdAt: number;
@@ -103,6 +104,16 @@ export class Host {
             return;
         }
 
+        if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/home" || url.pathname === "/desktop")) {
+            res.writeHead(200, {
+                "content-type": "text/html; charset=utf-8",
+                "cache-control": "no-store",
+                "x-content-type-options": "nosniff"
+            });
+            res.end(url.pathname === "/desktop" ? desktopPage : homePage);
+            return;
+        }
+
         if (requestUrl && this.checkForGuide(requestUrl)) {
             const guideRoot = path.isAbsolute(this.guideLocation)
                 ? this.guideLocation
@@ -130,11 +141,11 @@ export class Host {
 
                 res.end(await this.readFileSafe(resolvedTarget));
             } else {
-                res.writeHead(404, {
-                    "content-type": "text/plain; charset=utf-8",
-                    "Access-Control-Allow-Origin": "*"
+                res.writeHead(302, {
+                    "location": "https://github.com/Byte-ByByte/tcpioneer-guide/blob/e5563ef59509f3d37180ea3164c2a81bd0d3017e/index.md",
+                    "cache-control": "no-store"
                 });
-                res.end("404 Not Found");
+                res.end();
             }
 
             return;
