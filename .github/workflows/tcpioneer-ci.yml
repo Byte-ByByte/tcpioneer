@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       release_version:
-        description: "Release version (for example v1.0.0)"
+        description: "Release version, for example v1.0.0"
         required: true
         default: "v1.0.0"
         type: string
@@ -37,7 +37,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: false
           fetch-depth: 0
@@ -77,6 +77,7 @@ jobs:
 
             $treeLine = git ls-tree HEAD -- "$path"
             $sha = $null
+
             if ($treeLine -match '^160000 commit ([0-9a-f]+)') {
               $sha = $Matches[1]
             }
@@ -93,14 +94,18 @@ jobs:
 
             if (-not $checkedOut) {
               Write-Warning "Pinned commit unavailable for $path; trying the remote default branch."
+
               $head = git -C $path ls-remote --symref origin HEAD
-              $branchLine = $head | Where-Object { $_ -match '^ref: refs/heads/' } | Select-Object -First 1
+              $branchLine = $head |
+                Where-Object { $_ -match '^ref: refs/heads/' } |
+                Select-Object -First 1
 
               if (-not $branchLine) {
                 throw "Could not find the default branch for $path"
               }
 
               $branch = ($branchLine -split '\s+')[1] -replace '^refs/heads/', ''
+
               git -C $path fetch --no-tags origin $branch
               if ($LASTEXITCODE -ne 0) {
                 throw "Could not fetch submodule $path"
@@ -134,7 +139,7 @@ jobs:
           }
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -143,7 +148,11 @@ jobs:
       - name: Check required files
         shell: pwsh
         run: |
-          foreach ($file in @("package.json", "package-lock.json", "packages/cli/package.json")) {
+          foreach ($file in @(
+            "package.json",
+            "package-lock.json",
+            "packages/cli/package.json"
+          )) {
             if (-not (Test-Path $file)) {
               throw "Required file is missing: $file"
             }
@@ -201,10 +210,14 @@ jobs:
             if (-not $ready) {
               Write-Host "Server stdout:"
               if (Test-Path $stdout) { Get-Content $stdout }
+
               Write-Host "Server stderr:"
               if (Test-Path $stderr) { Get-Content $stderr }
+
               throw "Smoke test failed."
             }
+
+            Write-Host "Smoke test passed: /helloworld returned Hello, world!"
           } finally {
             if (-not $server.HasExited) {
               Stop-Process -Id $server.Id -Force
@@ -217,8 +230,10 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
+          Add-Type -AssemblyName System.IO.Compression
+
           $root = (Resolve-Path ".").Path
-          $zipName = "TCPIOneer-source-$env:RELEASE_VERSION.zip"
+          $zipName = "TCPIOneer-Release-$env:RELEASE_VERSION.zip"
           $zipPath = Join-Path $root $zipName
 
           if (Test-Path $zipPath) {
@@ -280,8 +295,10 @@ jobs:
                 )
 
                 $inputStream = [System.IO.File]::OpenRead($file.FullName)
+
                 try {
                   $outputStream = $entry.Open()
+
                   try {
                     $inputStream.CopyTo($outputStream)
                   } finally {
@@ -298,19 +315,43 @@ jobs:
             $stream.Dispose()
           }
 
+          if (-not (Test-Path $zipPath)) {
+            throw "ZIP packaging failed."
+          }
+
+          if (-not (Test-Path (Join-Path $root "LICENSE"))) {
+            Write-Warning "LICENSE was not found at the repository root."
+          }
+
           Write-Host "Created $zipName"
           Get-Item $zipPath | Select-Object Name, Length
 
       - name: Create GitHub Release and upload ZIP
         if: github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v2
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ inputs.release_version }}
-          target_commitish: ${{ github.sha }}
-          name: ${{ inputs.release_title }}
-          body: ${{ inputs.release_notes }}
-          files: TCPIOneer-source-${{ inputs.release_version }}.zip
-          draft: false
-          prerelease: ${{ contains(inputs.release_version, '-') }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_TITLE: ${{ inputs.release_title }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          $zipName = "TCPIOneer-Release-$env:RELEASE_VERSION.zip"
+
+          if (-not (Test-Path $zipName)) {
+            throw "Release ZIP not found: $zipName"
+          }
+
+          $ghArgs = @(
+            "release", "create",
+            $env:RELEASE_VERSION,
+            $zipName,
+            "--title", $env:RELEASE_TITLE,
+            "--notes", $env:RELEASE_NOTES,
+            "--target", $env:GITHUB_SHA
+          )
+
+          if ($env:RELEASE_VERSION.Contains("-")) {
+            $ghArgs += "--prerelease"
+          }
+
+          gh @ghArgs
