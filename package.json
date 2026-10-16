@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "build": "npm --workspace @tcpioneer/core run build && npm --workspace @tcpioneer/cli run build",
+    "build:exe": "npm run build && npx -y pkg -t node16-win-x64 -o dist/tcpioneer.exe packages/cli/dist/main.js",
     "start": "npm run build && npm --workspace @tcpioneer/cli start",
     "test": "npm run build"
   },

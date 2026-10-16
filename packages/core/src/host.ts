@@ -38,12 +38,17 @@ export class Host {
         this.port = config.server.port
         this.token = config.server.token
         this.guideLocation = config.server.guide.location
+        this.shortcutListener = this.shortcutListener.bind(this)
     }
+
+    private sessionsPermitted = true;
 
     async start() {
         console.log(messages.startText([new Date().toUTCString(), this.host, String(this.port)]));
 
-        process.stdin.on('keypress', this.shortcutListener);
+        if (process.stdin.isTTY) {
+            process.stdin.on('keypress', this.shortcutListener);
+        }
 
         const server = http.createServer(async (req, res) => {
             try {
@@ -83,7 +88,8 @@ export class Host {
         if (req.method === "OPTIONS") {
             this.sendJson(res, 204, null, {
                 "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization"
+                "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                "Access-Control-Allow-Origin": "*"
             });
             return;
         }
@@ -98,18 +104,23 @@ export class Host {
         }
 
         if (requestUrl && this.checkForGuide(requestUrl)) {
-            const guideRoot = path.resolve(__dirname, "..", "guide");
+            const guideRoot = path.isAbsolute(this.guideLocation)
+                ? this.guideLocation
+                : path.resolve(process.cwd(), this.guideLocation);
 
             const guidePath = requestUrl
                 .slice("/guide".length)
                 .replace(/^\/+/, "");
 
-            const resolvedTarget = path.resolve(
-                guideRoot,
-                guidePath
-                    ? (guidePath.endsWith(".md") ? guidePath : `${guidePath}.md`)
-                    : "index.md"
-            );
+            let resolvedTarget = path.resolve(guideRoot, guidePath || "index.md");
+
+            if (!(await this.checkFile(resolvedTarget))) {
+                if (await this.checkFile(`${resolvedTarget}.md`)) {
+                    resolvedTarget = `${resolvedTarget}.md`;
+                } else if (await this.checkFile(path.join(resolvedTarget, "index.md"))) {
+                    resolvedTarget = path.join(resolvedTarget, "index.md");
+                }
+            }
 
             if (await this.checkFile(resolvedTarget)) {
                 res.writeHead(200, {
@@ -119,7 +130,10 @@ export class Host {
 
                 res.end(await this.readFileSafe(resolvedTarget));
             } else {
-                res.writeHead(404);
+                res.writeHead(404, {
+                    "content-type": "text/plain; charset=utf-8",
+                    "Access-Control-Allow-Origin": "*"
+                });
                 res.end("404 Not Found");
             }
 
@@ -159,7 +173,7 @@ export class Host {
             return;
         }
 
-        res.writeHead(404, { 'content-type': 'application/json' });
+        res.writeHead(404, { 'content-type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ ok: false, error: 'not found' }));
     }
 
@@ -169,15 +183,25 @@ export class Host {
             return;
         }
 
+        if (!this.sessionsPermitted) {
+            this.sendJson(res, 403, { ok: false, error: 'session creation is disabled by server operator' });
+            return;
+        }
+
         const sessionId = randomUUID();
         const now = Date.now();
         this.sessions.set(sessionId, { createdAt: now, expiresAt: now + this.sessionTtlMs });
 
-        this.sendJson(res, 200, {
+        this.sendJson(res, 201, {
             ok: true,
             session: sessionId,
+            "session-key": sessionId,
             createdAt: new Date(now).toISOString(),
-            expiresAt: new Date(now + this.sessionTtlMs).toISOString()
+            created: new Date(now).toISOString(),
+            expiresAt: new Date(now + this.sessionTtlMs).toISOString(),
+            expiry: new Date(now + this.sessionTtlMs).toISOString(),
+            capabilities: ["mouse", "keyboard", "screenshot"],
+            usable: true
         });
     }
 
@@ -212,8 +236,9 @@ export class Host {
             return;
         }
 
+        const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
         const body = this.asObject(await this.readJsonBody(req));
-        const sessionKey = typeof body?.session === 'string' ? body.session : '';
+        const sessionKey = (typeof body?.session === 'string' ? body.session : '') || (url.searchParams.get('session') ?? '');
         if (!sessionKey || !this.getSession(sessionKey)) {
             this.sendJson(res, 401, { ok: false, error: 'invalid or expired session' });
             return;
@@ -223,7 +248,8 @@ export class Host {
         res.writeHead(200, {
             "content-type": "image/jpeg",
             "content-length": screenshot.length,
-            "cache-control": "no-store"
+            "cache-control": "no-store",
+            "Access-Control-Allow-Origin": "*"
         });
         res.end(screenshot);
     }
@@ -234,8 +260,9 @@ export class Host {
             return;
         }
 
+        const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
         const body = this.asObject(await this.readJsonBody(req));
-        const sessionKey = typeof body?.session === 'string' ? body.session : '';
+        const sessionKey = (typeof body?.session === 'string' ? body.session : '') || (url.searchParams.get('session') ?? '');
 
         if (!sessionKey) {
             this.sendJson(res, 400, { ok: false, error: 'session is required' });
@@ -341,6 +368,7 @@ export class Host {
     private sendJson(res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }, status: number, payload: unknown, headers: Record<string, string> = {}) {
         const responseHeaders = {
             'content-type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
             ...headers
         };
 
@@ -349,13 +377,32 @@ export class Host {
     }
 
     shortcutListener(_: string, key: readline.Key) {
-
-        if (key.sequence == '\x7f') { // Historically, Ctrl+H mapped to backspace in ASCII. In the terminal, that's also the case, so we listen for it.
+        if (key.sequence === '\x7f' || (key.ctrl && key.name === 'h')) {
             console.log(messages.helpText([]));
+            return;
         }
 
-        if (key.ctrl && key.name == 'c') {
+        if (key.ctrl && key.meta && key.name === 'a') {
+            this.sessionsPermitted = !this.sessionsPermitted;
+            this.logger.notice("Host", `Session creation toggled: ${this.sessionsPermitted ? "ENABLED" : "DISABLED"}`);
+            return;
+        }
+
+        if (key.ctrl && key.meta && key.name === 'c') {
+            this.logger.notice("Host", "Graceful shutdown requested by operator.");
+            process.exit(0);
+            return;
+        }
+
+        if (key.ctrl && key.meta && key.shift && key.name === 'f') {
+            this.logger.emergency("Host", "Emergency failsafe triggered. Force quitting now.");
             process.exit(1);
+            return;
+        }
+
+        if (key.ctrl && key.name === 'c') {
+            process.exit(1);
+            return;
         }
     }
 
