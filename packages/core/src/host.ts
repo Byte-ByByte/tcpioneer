@@ -1,10 +1,12 @@
 import readline from "node:readline"
 import HostConfig from "./util/config";
 import { readFile, access, constants } from 'node:fs/promises';
+import { createReadStream } from "node:fs";
 import  * as http from "node:http"
 import * as messages from "./util/messages"
 import * as path from "node:path"
 import { Logger, LogSeverity } from "./util/logger";
+import { createHash } from "node:crypto";
 
 readline.emitKeypressEvents(process.stdin);
 
@@ -49,7 +51,10 @@ export class Host {
             res.end('Hello, world!');
         }
 
+        // Check for guide doc path
         if (req.url && this.checkForGuide(req.url)) {
+
+            // Check if the guide doc is in the guide folder
             const guideRoot = path.resolve("./guide");
 
             const guidePath = req.url
@@ -64,11 +69,26 @@ export class Host {
             );
 
             if (await this.checkFile(resolvedTarget)) {
-                res.writeHead(200, {
-                    "content-type": "text/markdown; charset=utf-8"
-                });
+                const file = await this.readFileSafe(resolvedTarget);
+                
+                // Create an ETag for caching
 
-                res.end(await this.readFileSafe(resolvedTarget));
+                let digest: string = createHash('sha256').update(file).digest('hex');
+                let etag: string = `"${digest}"`;
+
+                // Check for headers; client might have a cached version
+
+                if (req.headers["if-none-match"] === etag) {
+                    res.writeHead(304, { "cache-control": "no-cache", "etag": etag });
+                    res.end();
+                } else {
+                    res.writeHead(200, {
+                        "content-type": "text/markdown; charset=utf-8",
+                        "cache-control": "no-cache",
+                        "etag": etag
+                    });
+                    res.end(file);
+                }
             } else {
                 res.writeHead(404);
                 res.end("404 Not Found");
@@ -93,12 +113,13 @@ export class Host {
         return urlPath === "/guide" || urlPath.startsWith("/guide/");
     }
 
-    async readFileSafe(path: string) {
+    async readFileSafe(path: string): Promise<string | ""> {
         try {
             let data = await readFile(path, 'utf8');
             return data;
         } catch (error) {
-            console.error('Error reading config:', error instanceof Error ? error.message : String(error));
+            this.logger.error('Error reading file:', error instanceof Error ? error.message : String(error));
+            return "";
         }
     }
 
