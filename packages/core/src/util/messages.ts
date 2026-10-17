@@ -10,17 +10,6 @@ export const startText: TextGenerator = (textinput) => {
     ${chalk.blue("-- Server Info --")}
     ${chalk.green("Host: ")} ${textinput[1]}
     ${chalk.green("Port: ")} ${textinput[2]}
-    ${chalk.green("Access token: ")} ${textinput[3]}
-
-    ${chalk.blue("-- AI/API Connection --")}
-    ${chalk.green("Base URL: ")} ${textinput[4]}
-    ${chalk.green("AI instructions: ")} GET ${textinput[4]}/ai
-    ${chalk.green("Verify token: ")} GET ${textinput[4]}/api/v1/auth-check
-    ${chalk.green("Authorization: ")} Bearer ${textinput[3]}
-    ${chalk.green("Request session: ")} POST ${textinput[4]}/api/v1/request-session
-    ${chalk.green("Control desktop: ")} POST ${textinput[4]}/api/v1/control
-    ${chalk.green("Capture screenshot: ")} POST ${textinput[4]}/api/v1/screenshot
-    ${chalk.green("Session info/delete: ")} GET/DELETE ${textinput[4]}/api/v1/session
 
     ${chalk.gray("Ctrl + H for shortcut help")}
 
