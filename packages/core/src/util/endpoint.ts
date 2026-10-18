@@ -1,6 +1,6 @@
 import * as http from "node:http"
 
-export type EndpointRunCondition<T> = (host: T, req: http.IncomingMessage) => boolean | Promise<boolean>;
+export type EndpointMatchCondition<T> = (host: T, req: http.IncomingMessage) => boolean | Promise<boolean>;
 export type EndpointFunction<T> = (host: T, req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) => void | Promise<void>;
 
 export default class Endpoint<T> {
@@ -8,54 +8,56 @@ export default class Endpoint<T> {
     /**
      * When this Endpoint is run with `conditionalRun()`, this function will be run.
      * Its return value determines if the Endpoint's `endpointFunction` will be run.
-     * If its return value is `true`, `endpointFunction` will be run, otherwise, it will not be run.
+     * If it resolves to `true`, `endpointFunction` will be run, otherwise, it will not be run.
      * 
      * @param host Host to perform condition with
      * @param req Request to perform condition with
      *
      */
-    runCondition: EndpointRunCondition<T>;
+    matchCondition: EndpointMatchCondition<T>;
 
     /**
      * This is the main endpoint function, where all endpoint activities will be run.
      * 
-     * When this Endpoint is run with `conditionalRun()`, this function will run if `runCondition` returns true.
-     * If its return value is `true`, this function will be run, otherwise, it will not be run.
+     * When this Endpoint is run with `conditionalRun()`, this function will run if `matchCondition` returns true.
+     * If it resolves to `true`, this function will be run, otherwise, it will not be run.
      * 
      * @param host Host to perform endpoint code with
      * @param req Request to perform endpoint code with
      * @param res Response to perform endpoint code with
-     * 
-     * @returns `boolean`, `true` to run `endpointFunction`
+     *
      */
     endpointFunction: EndpointFunction<T>;
 
-    constructor(runCondition: EndpointRunCondition<T>, endpointFunction: EndpointFunction<T>) {
-        this.runCondition = runCondition;
+    constructor(matchCondition: EndpointMatchCondition<T>, endpointFunction: EndpointFunction<T>) {
+        this.matchCondition = matchCondition;
         this.endpointFunction = endpointFunction;
     }
 
     /**
-     * Runs `endpointFunction` if `runCondition` returns `true`.
+     * Runs `endpointFunction` if `matchCondition` returns `true`.
+     * 
+     * This function will reject if the handler throws.
      * 
      * @param host Host to perform condition or endpoint actions with
      * @param req Request to perform condition or endpoint actions with
      * @param res Response to perform endpoint code with
      * 
-     * @returns `Promise<boolean> | boolean`, resolves to `true` if `endpointFunction` was called
+     * @returns `Promise<boolean>`, resolves to `true` if the endpoint
+     * matches and its handler completes successfully, or `false` if it doesn't match.
      */
-    async conditionalRun(host: T, req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        const runEndpointFunction = await this.runCondition(host, req); // Save to a const for return
+    async conditionalRun(host: T, req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }): Promise<boolean> {
+        const matches = await this.matchCondition(host, req); // Save to a const for return
         
-        if (runEndpointFunction) await this.endpointFunction(host, req, res); // Run if runCondition says so
+        if (matches) await this.endpointFunction(host, req, res); // Run if matchCondition says so
 
-        return runEndpointFunction;
+        return matches;
     }
 }
 
 export class EndpointFamily<T> {
     host: T;
-    endpoints: Endpoint<T>[]
+    readonly endpoints: Endpoint<T>[]
 
     constructor(host: T, endpoints: Endpoint<T>[]) {
         this.host = host;
@@ -65,12 +67,14 @@ export class EndpointFamily<T> {
     /**
      * Runs the first endpoint under the endpoint family array which matches under these conditions.
      * 
-     * The endpoints are checked left-to-right sequentially.
+     * The endpoints are checked left-to-right sequentially, and the first matching endpoint is the one to run for the request.
+     * 
+     * This function will reject if any handler throws.
      * 
      * @param req Request to perform condition or endpoint actions with
      * @param res Response to perform endpoint code with
      * 
-     * @returns `boolean`, `true` if an endpoint was found, otherwise `false`
+     * @returns `boolean`, `true` if an endpoint was found and **finished successfully**, otherwise `false` if not found.
      */
     async runMatchingEndpoint(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }): Promise<boolean> {
         
