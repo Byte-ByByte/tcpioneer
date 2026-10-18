@@ -4,7 +4,6 @@ export type EndpointRunCondition<T> = (host: T, req: http.IncomingMessage) => bo
 export type EndpointFunction<T> = (host: T, req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) => void | Promise<void>;
 
 export default class Endpoint<T> {
-    host: T;
 
     /**
      * When this Endpoint is run with `conditionalRun()`, this function will be run.
@@ -13,8 +12,7 @@ export default class Endpoint<T> {
      * 
      * @param host Host to perform condition with
      * @param req Request to perform condition with
-     * 
-     * @returns `boolean`, `true` to run `endpointFunction`
+     *
      */
     runCondition: EndpointRunCondition<T>;
 
@@ -32,8 +30,7 @@ export default class Endpoint<T> {
      */
     endpointFunction: EndpointFunction<T>;
 
-    constructor(host: T, runCondition: EndpointRunCondition<T>, endpointFunction: EndpointFunction<T>) {
-        this.host = host;
+    constructor(runCondition: EndpointRunCondition<T>, endpointFunction: EndpointFunction<T>) {
         this.runCondition = runCondition;
         this.endpointFunction = endpointFunction;
     }
@@ -41,16 +38,16 @@ export default class Endpoint<T> {
     /**
      * Runs `endpointFunction` if `runCondition` returns `true`.
      * 
-     * @param host Rost to perform condition or endpoint actions with
+     * @param host Host to perform condition or endpoint actions with
      * @param req Request to perform condition or endpoint actions with
      * @param res Response to perform endpoint code with
      * 
-     * @returns `boolean`, if `endpointFunction` was called
+     * @returns `Promise<boolean> | boolean`, resolves to `true` if `endpointFunction` was called
      */
     async conditionalRun(host: T, req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        const runEndpointFunction = await Promise.resolve(this.runCondition(host, req)); // Save to a const for return
+        const runEndpointFunction = await this.runCondition(host, req); // Save to a const for return
         
-        if (runEndpointFunction) await Promise.resolve(this.endpointFunction(host, req, res)); // Run if runCondition says so
+        if (runEndpointFunction) await this.endpointFunction(host, req, res); // Run if runCondition says so
 
         return runEndpointFunction;
     }
@@ -75,7 +72,7 @@ export class EndpointFamily<T> {
      * 
      * @returns `boolean`, `true` if an endpoint was found, otherwise `false`
      */
-    async runMatchingEndpoint(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }): Promise<Boolean> {
+    async runMatchingEndpoint(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }): Promise<boolean> {
         
         // Iterate through the endpoints; stop on first match
         for (const endpoint of this.endpoints) {
