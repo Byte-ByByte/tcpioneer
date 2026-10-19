@@ -1,12 +1,15 @@
 import readline from "node:readline"
-import HostConfig from "./util/config";
+import HostConfig from "./config";
 import { readFile, access, constants } from 'node:fs/promises';
-import { createReadStream } from "node:fs";
 import  * as http from "node:http"
-import * as messages from "./util/messages"
-import * as path from "node:path"
-import { Logger, LogSeverity } from "./util/logger";
-import { createHash } from "node:crypto";
+import * as messages from "./messages"
+import { Logger, LogSeverity } from "./logger";
+import { EndpointFamily } from "./endpoint";
+import globalEndpointArray from "./apiarray";
+
+export * as messages from "./messages"
+export { default as HostConfig } from "./config";
+export * as logger from "./logger"
 
 readline.emitKeypressEvents(process.stdin);
 
@@ -14,21 +17,20 @@ if (process.stdin.isTTY) {
   process.stdin.setRawMode(true);
 }
 
-export * as messages from "./util/messages"
-export { default as HostConfig } from "./util/config";
-export * as logger from "./util/logger"
-
 export class Host {
     logger: Logger;
     host: string;
     port: number;
     private token: string;
+    endpointFamily: EndpointFamily<Host>;
 
     constructor(config: HostConfig) {
         this.logger = config.logger
         this.host = config.server.host
         this.port = config.server.port
         this.token = config.server.token
+
+        this.endpointFamily = new EndpointFamily<Host>(this, globalEndpointArray);
     }
     
     async start() {
@@ -44,58 +46,7 @@ export class Host {
     async serverResponse(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
         this.logger.log(LogSeverity.Debug, "HTTPServer", `New request on url ${req.url}`)
 
-        if (req.url == "/helloworld") {
-            res.writeHead(200, {
-                'content-type': 'text/plain'
-            });
-            res.end('Hello, world!');
-        }
-
-        // Check for guide doc path
-        if (req.url && this.checkForGuide(req.url)) {
-
-            // Check if the guide doc is in the guide folder
-            const guideRoot = path.resolve("./guide");
-
-            const guidePath = req.url
-                .slice("/guide".length)
-                .replace(/^\/+/, "");
-
-            const resolvedTarget = path.resolve(
-                guideRoot,
-                guidePath
-                    ? (guidePath.endsWith(".md") ? guidePath : `${guidePath}.md`)
-                    : "index.md"
-            );
-
-            if (await this.checkFile(resolvedTarget)) {
-                const file = await this.readFileSafe(resolvedTarget);
-                
-                // Create an ETag for caching
-
-                let digest: string = createHash('sha256').update(file).digest('hex');
-                let etag: string = `"${digest}"`;
-
-                // Check for headers; client might have a cached version
-
-                if (req.headers["if-none-match"] === etag) {
-                    res.writeHead(304, { "cache-control": "no-cache", "etag": etag });
-                    res.end();
-                } else {
-                    res.writeHead(200, {
-                        "content-type": "text/markdown; charset=utf-8",
-                        "cache-control": "no-cache",
-                        "etag": etag
-                    });
-                    res.end(file);
-                }
-            } else {
-                res.writeHead(404);
-                res.end("404 Not Found");
-            }
-
-            return;
-        }
+        this.endpointFamily.runMatchingEndpoint(req, res)
     }
 
     shortcutListener(_: string, key: readline.Key) {
