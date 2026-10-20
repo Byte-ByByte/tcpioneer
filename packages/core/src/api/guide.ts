@@ -1,55 +1,58 @@
 import Endpoint from "../endpoint";
-import { Host } from "../host";
+import type { Host } from "../host";
 import * as path from "node:path"
 import { createHash } from "node:crypto";
 
 const endpointGuide = new Endpoint<Host>(
-    (host, req) => {return Boolean(req.url && host.checkForGuide(req.url))}, // Check for guide doc path
+    (host, req) => Boolean(req.url && host.checkForGuide(req.url)),
     async (host, req, res) => {
-        // Check if the guide doc is in the guide folder
-        const guideRoot = path.resolve("./guide");
+        const guideRoot = path.isAbsolute(host.guideLocation)
+            ? host.guideLocation
+            : path.resolve(process.cwd(), host.guideLocation);
 
-        if (req.url) {
-            const guidePath = req.url
+        if (!req.url) return;
+
+        const guidePath = req.url
             .slice("/guide".length)
             .replace(/^\/+/, "");
 
-            const resolvedTarget = path.resolve(
-                guideRoot,
-                guidePath
-                    ? (guidePath.endsWith(".md") ? guidePath : `${guidePath}.md`)
-                    : "index.md"
-            );
+        let resolvedTarget = path.resolve(guideRoot, guidePath || "index.md");
 
-            if (await host.checkFile(resolvedTarget)) {
-                const file = await host.readFileSafe(resolvedTarget);
-                
-                // Create an ETag for caching
+        if (!(await host.checkFile(resolvedTarget))) {
+            if (await host.checkFile(`${resolvedTarget}.md`)) {
+                resolvedTarget = `${resolvedTarget}.md`;
+            } else if (await host.checkFile(path.join(resolvedTarget, "index.md"))) {
+                resolvedTarget = path.join(resolvedTarget, "index.md");
+            }
+        }
 
-                let digest: string = createHash('sha256').update(file).digest('hex');
-                let etag: string = `"${digest}"`;
+        if (await host.checkFile(resolvedTarget)) {
+            const file = await host.readFileSafe(resolvedTarget);
+            const digest = createHash("sha256").update(file).digest("hex");
+            const etag = `"${digest}"`;
 
-                // Check for headers; client might have a cached version
-
-                if (req.headers["if-none-match"] === etag) {
-                    res.writeHead(304, { "cache-control": "no-cache", "etag": etag });
-                    res.end();
-                } else {
-                    res.writeHead(200, {
-                        "content-type": "text/markdown; charset=utf-8",
-                        "cache-control": "no-cache",
-                        "etag": etag
-                    });
-                    res.end(file);
-                }
-            } else {
-                res.writeHead(404);
-                res.end("404 Not Found");
+            if (req.headers["if-none-match"] === etag) {
+                res.writeHead(304, { "cache-control": "no-cache", "etag": etag });
+                res.end();
+                return;
             }
 
+            res.writeHead(200, {
+                "content-type": "text/markdown; charset=utf-8",
+                "cache-control": "no-cache",
+                "etag": etag,
+                "Access-Control-Allow-Origin": "*"
+            });
+            res.end(file);
             return;
         }
+
+        res.writeHead(302, {
+            "location": "https://github.com/Byte-ByByte/tcpioneer-guide/blob/e5563ef59509f3d37180ea3164c2a81bd0d3017e/index.md",
+            "cache-control": "no-store"
+        });
+        res.end();
     }
-)
+);
 
 export default endpointGuide;
