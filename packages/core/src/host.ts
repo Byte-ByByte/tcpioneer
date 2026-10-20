@@ -7,10 +7,14 @@ import * as messages from "./util/messages"
 import * as path from "node:path"
 import { Logger, LogSeverity } from "./util/logger";
 import { captureScreenshot, DesktopInputError, DesktopUnsupportedError, performDesktopAction } from "./desktop";
-import { desktopPage, homePage } from "./ui";
+import { desktopPage, homePage, unauthorizedAiPage } from "./ui";
 
-const aiApiDescription = {
+const httpApiDescription = {
     service: "TCPIOneer",
+    browser: {
+        path: "/ai",
+        note: "GET /ai with Authorization: Bearer <access-token>. After the header is verified, the full remote-desktop UI is returned."
+    },
     authentication: {
         type: "Bearer",
         header: "Authorization",
@@ -81,7 +85,6 @@ export class Host {
             new Date().toUTCString(),
             this.host,
             String(this.port),
-            this.token,
             baseUrl
         ]));
 
@@ -148,14 +151,12 @@ export class Host {
                 "cache-control": "no-store",
                 "x-content-type-options": "nosniff"
             });
-            res.end(url.pathname === "/desktop" ? desktopPage : homePage);
+            res.end(url.pathname === "/desktop" ? desktopPage(this.token) : homePage);
             return;
         }
 
-        if (req.method === "GET" && url.pathname === "/ai") {
-            this.sendJson(res, 200, aiApiDescription, {
-                "cache-control": "no-store"
-            });
+        if (req.method === "GET" && (url.pathname === "/ai" || url.pathname === "/api")) {
+            await this.handleAiOrApi(req, res, url.pathname);
             return;
         }
 
@@ -196,18 +197,19 @@ export class Host {
             return;
         }
 
+        if (req.method === "GET" && url.pathname === "/api/v1") {
+            if (!this.requireBearerToken(req, res)) return;
+            this.sendJson(res, 200, httpApiDescription, { "cache-control": "no-store" });
+            return;
+        }
+
         if (req.method === "POST" && url.pathname === "/api/v1/request-session") {
             await this.handleRequestSession(req, res);
             return;
         }
 
         if (req.method === "GET" && url.pathname === "/api/v1/auth-check") {
-            if (!this.hasValidBearerToken(req)) {
-                this.sendJson(res, 401, { ok: false, authenticated: false, error: "invalid or missing Authorization bearer token" }, {
-                    "cache-control": "no-store"
-                });
-                return;
-            }
+            if (!this.requireBearerToken(req, res, true)) return;
 
             this.sendJson(res, 200, { ok: true, authenticated: true }, {
                 "cache-control": "no-store"
@@ -247,11 +249,48 @@ export class Host {
         res.end(JSON.stringify({ ok: false, error: 'not found' }));
     }
 
-    private async handleRequestSession(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
+    private async handleAiOrApi(
+        req: http.IncomingMessage,
+        res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; },
+        pathname: string
+    ) {
+        const wantsHtml = this.wantsHtml(req);
         if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
+            if (wantsHtml) {
+                res.writeHead(401, {
+                    "content-type": "text/html; charset=utf-8",
+                    "cache-control": "no-store",
+                    "x-content-type-options": "nosniff",
+                    "Access-Control-Allow-Origin": "*"
+                });
+                res.end(unauthorizedAiPage);
+                return;
+            }
+
+            this.sendJson(res, 401, {
+                ok: false,
+                authenticated: false,
+                error: "invalid or missing Authorization bearer token",
+                api: "/api"
+            }, { "cache-control": "no-store" });
             return;
         }
+
+        if (pathname === "/ai" && wantsHtml) {
+            res.writeHead(200, {
+                "content-type": "text/html; charset=utf-8",
+                "cache-control": "no-store",
+                "x-content-type-options": "nosniff"
+            });
+            res.end(desktopPage(this.token, true));
+            return;
+        }
+
+        this.sendJson(res, 200, httpApiDescription, { "cache-control": "no-store" });
+    }
+
+    private async handleRequestSession(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
+        if (!this.requireBearerToken(req, res)) return;
 
         if (!this.sessionsPermitted) {
             this.sendJson(res, 403, { ok: false, error: 'session creation is disabled by server operator' });
@@ -276,10 +315,7 @@ export class Host {
     }
 
     private async handleControl(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
-            return;
-        }
+        if (!this.requireBearerToken(req, res)) return;
 
         const body = await this.readJsonBody(req);
         const payload = this.asObject(body);
@@ -301,10 +337,7 @@ export class Host {
     }
 
     private async handleScreenshot(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
-            return;
-        }
+        if (!this.requireBearerToken(req, res)) return;
 
         const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
         const body = this.asObject(await this.readJsonBody(req));
@@ -325,10 +358,7 @@ export class Host {
     }
 
     private async handleDeleteSession(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
-            return;
-        }
+        if (!this.requireBearerToken(req, res)) return;
 
         const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
         const body = this.asObject(await this.readJsonBody(req));
@@ -349,10 +379,7 @@ export class Host {
     }
 
     private async handleSessionInfo(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
-            return;
-        }
+        if (!this.requireBearerToken(req, res)) return;
 
         const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
         const sessionKey = url.searchParams.get('session') ?? '';
@@ -375,6 +402,25 @@ export class Host {
             expiresAt: new Date(session.expiresAt).toISOString(),
             valid: true
         });
+    }
+
+    private requireBearerToken(
+        req: http.IncomingMessage,
+        res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; },
+        authCheck = false
+    ): boolean {
+        if (this.hasValidBearerToken(req)) return true;
+        this.sendJson(res, 401, authCheck
+            ? { ok: false, authenticated: false, error: "invalid or missing Authorization bearer token" }
+            : { ok: false, error: "invalid or missing Authorization bearer token" }, {
+            "cache-control": "no-store"
+        });
+        return false;
+    }
+
+    private wantsHtml(req: http.IncomingMessage): boolean {
+        const accept = req.headers.accept ?? "";
+        return accept.includes("text/html");
     }
 
     private hasValidBearerToken(req: http.IncomingMessage): boolean {

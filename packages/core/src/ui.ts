@@ -1,72 +1,26 @@
-export const homePage = String.raw`<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101827">
-  <title>TCPIOneer</title>
-  <style>
-    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101827; color: #e6edf7; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-    main { width: min(760px, 100%); }
-    h1 { margin: 0 0 8px; font-size: clamp(2rem, 6vw, 3.5rem); letter-spacing: -.04em; }
-    .intro { margin: 0 0 32px; color: #9eacc2; font-size: 1.1rem; }
-    .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
-    a.card, section.card { display: block; min-height: 190px; padding: 24px; border: 1px solid #2c3b50; border-radius: 16px; background: #172337; color: inherit; text-decoration: none; transition: border-color .15s, transform .15s; }
-    a.card:hover, a.card:focus-visible, section.card:hover { border-color: #70a7ff; transform: translateY(-2px); outline: none; }
-    section.card a { color: #a9caff; }
-    .ai-link { display: block; margin-top: 18px; color: #a9caff; }
-    .icon { display: block; margin-bottom: 18px; font-size: 1.8rem; }
-    h2 { margin: 0 0 8px; font-size: 1.25rem; }
-    .card p { margin: 0; color: #9eacc2; line-height: 1.55; }
-    footer { margin-top: 24px; color: #73839a; font-size: .9rem; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>TCPIOneer</h1>
-    <p class="intro">What would you like to do?</p>
-    <nav class="choices" aria-label="Choose an option">
-      <a class="card" href="/desktop">
-        <span class="icon" aria-hidden="true">&#128421;</span>
-        <h2>Remote desktop</h2>
-        <p>Connect to a PC by entering its server URL and access token.</p>
-      </a>
-      <section class="card">
-        <span class="icon" aria-hidden="true">&#128214;</span>
-        <h2>Open the guide</h2>
-        <p><a href="https://github.com/Byte-ByByte/tcpioneer-guide/blob/e5563ef59509f3d37180ea3164c2a81bd0d3017e/index.md" target="_blank" rel="noopener noreferrer">Read the formatted guide on GitHub</a></p>
-        <p><a href="https://github.com/Byte-ByByte/tcpioneer-guide/raw/c27697b6a7f9f697c2aac490cca6d090afefde4a/index.md" target="_blank" rel="noopener noreferrer">Download the Markdown file</a></p>
-      </section>
-    </nav>
-    <footer>Choose Remote desktop to connect to this PC or another TCPIOneer host.<a class="ai-link" href="/ai">AI/API connection information: /ai</a></footer>
-  </main>
-</body>
-</html>`;
-
-export const desktopPage = String.raw`<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101827">
-  <title>Remote desktop - TCPIOneer</title>
-  <style>
+const styles = String.raw`
     :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101827; color: #e6edf7; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; }
+    a { color: #a9caff; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px clamp(16px, 4vw, 40px); border-bottom: 1px solid #27364a; }
-    header a { color: #a9caff; text-decoration: none; }
+    header a { text-decoration: none; }
     header a:hover { text-decoration: underline; }
     h1 { margin: 0; font-size: 1.1rem; }
-    main { width: min(960px, 100%); margin: 44px auto; padding: 0 20px; }
-    h2 { margin: 0 0 8px; font-size: 1.8rem; }
-    .lead, .hint { color: #9eacc2; line-height: 1.55; }
+    .hero { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .hero main { width: min(760px, 100%); }
+    .hero h1 { margin: 0 0 8px; font-size: clamp(2rem, 6vw, 3.5rem); letter-spacing: -.04em; }
+    .intro { margin: 0 0 32px; color: #9eacc2; font-size: 1.1rem; }
+    .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+    a.card { display: block; min-height: 190px; padding: 24px; border: 1px solid #2c3b50; border-radius: 16px; background: #172337; color: inherit; text-decoration: none; transition: border-color .15s, transform .15s; }
+    a.card:hover, a.card:focus-visible { border-color: #70a7ff; transform: translateY(-2px); outline: none; }
+    .icon { display: block; margin-bottom: 18px; font-size: 1.8rem; }
+    h2 { margin: 0 0 8px; font-size: 1.25rem; }
+    .card p, .lead, .hint { margin: 0; color: #9eacc2; line-height: 1.55; }
+    footer { margin-top: 24px; color: #73839a; font-size: .9rem; }
+    .page { width: min(960px, 100%); margin: 44px auto; padding: 0 20px; }
+    .page h2 { font-size: 1.8rem; }
     form { display: grid; gap: 16px; max-width: 620px; margin-top: 24px; }
-    label { display: grid; gap: 7px; font-weight: 600; }
-    input { width: 100%; padding: 12px 14px; border: 1px solid #3a4b63; border-radius: 8px; background: #121c2b; color: #e6edf7; font: inherit; }
-    input:focus { border-color: #70a7ff; outline: 2px solid #70a7ff44; }
     button { width: fit-content; border: 0; border-radius: 8px; padding: 11px 17px; background: #3679e5; color: white; font: inherit; font-weight: 700; cursor: pointer; }
     button:hover { background: #4b8af0; }
     button:disabled { opacity: .55; cursor: wait; }
@@ -83,25 +37,83 @@ export const desktopPage = String.raw`<!doctype html>
     #screen-wrap:fullscreen #screen { max-width: 100vw; max-height: calc(100vh - 24px); border: 0; }
     .hint { font-size: .9rem; }
     [hidden] { display: none !important; }
-  </style>
+`;
+
+export const homePage = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>TCPIOneer</title>
+  <style>${styles}</style>
+</head>
+<body>
+  <div class="hero">
+    <main>
+      <h1>TCPIOneer</h1>
+      <p class="intro">Connect to this PC from a browser, or use the HTTP API.</p>
+      <nav class="choices" aria-label="Choose an option">
+        <a class="card" href="/desktop">
+          <span class="icon" aria-hidden="true">&#128421;</span>
+          <h2>Remote desktop</h2>
+          <p>Open a live view of this PC. The Authorization header is verified automatically.</p>
+        </a>
+        <a class="card" href="https://github.com/Byte-ByByte/tcpioneer-guide/blob/e5563ef59509f3d37180ea3164c2a81bd0d3017e/index.md" target="_blank" rel="noopener noreferrer">
+          <span class="icon" aria-hidden="true">&#128214;</span>
+          <h2>Open the guide</h2>
+          <p>Read the TCPIOneer documentation on GitHub.</p>
+        </a>
+      </nav>
+      <footer>AIs: GET /ai with an Authorization bearer header, or GET /api for the HTTP API.</footer>
+    </main>
+  </div>
+</body>
+</html>`;
+
+export const unauthorizedAiPage = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>Authorization required - TCPIOneer</title>
+  <style>${styles}</style>
+</head>
+<body>
+  <div class="hero">
+    <main>
+      <h1>Authorization required</h1>
+      <p class="intro">Send <code>Authorization: Bearer &lt;access-token&gt;</code> and open /ai again. The HTTP API is at /api using the same header.</p>
+    </main>
+  </div>
+</body>
+</html>`;
+
+export function desktopPage(token: string, autoConnect = false): string {
+    const bearerToken = JSON.stringify(token);
+    const shouldAutoConnect = autoConnect ? "true" : "false";
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>Remote desktop - TCPIOneer</title>
+  <style>${styles}</style>
 </head>
 <body>
   <header>
     <h1>TCPIOneer</h1>
     <a href="/">Home</a>
   </header>
-  <main>
+  <main class="page">
     <section id="connect">
-      <h2>Connect to a PC</h2>
-      <p class="lead">Enter the TCPIOneer server URL and its access token. The token is sent in the Authorization bearer header and is kept only in this page while connected.</p>
+      <h2>Connect to this PC</h2>
+      <p class="lead">This page verifies the Authorization header with the PC, then opens a live remote desktop. No access token is entered here.</p>
       <form id="connect-form">
-        <label for="server-url">PC server URL</label>
-        <input id="server-url" name="server-url" type="url" placeholder="http://192.168.1.25:3420" required autocomplete="url">
-        <label for="token">Access token</label>
-        <input id="token" name="token" type="password" required autocomplete="off">
         <button id="connect-button" type="submit">Connect</button>
       </form>
-      <p class="hint">Use the host's configured server URL and token. The PC must be reachable from this browser.</p>
     </section>
     <p id="status" role="status" aria-live="polite"></p>
     <section id="desktop" hidden>
@@ -126,11 +138,10 @@ export const desktopPage = String.raw`<!doctype html>
     const screen = document.getElementById("screen");
     const screenWrap = document.getElementById("screen-wrap");
     const fullscreenButton = document.getElementById("fullscreen-button");
-    const serverUrlInput = document.getElementById("server-url");
-    serverUrlInput.value = window.location.origin;
+    const autoConnect = ${shouldAutoConnect};
+    const serverUrl = window.location.origin;
+    const bearerToken = ${bearerToken};
 
-    let serverUrl = "";
-    let bearerToken = "";
     let activeSession = "";
     let refreshTimer = 0;
     let screenshotObjectUrl = "";
@@ -151,7 +162,7 @@ export const desktopPage = String.raw`<!doctype html>
       try {
         response = await fetch(serverUrl + path, options);
       } catch (_) {
-        throw new Error("Could not reach the PC. Check the URL and network connection.");
+        throw new Error("Could not reach the PC.");
       }
       let data;
       try {
@@ -165,34 +176,16 @@ export const desktopPage = String.raw`<!doctype html>
       return data;
     }
 
-    function normalizeServerUrl(value) {
-      let parsed;
-      try {
-        parsed = new URL(value);
-      } catch (_) {
-        throw new Error("Enter a valid PC server URL, including http:// or https://.");
-      }
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        throw new Error("The PC URL must use http:// or https://.");
-      }
-      if (parsed.username || parsed.password || (parsed.pathname !== "/" && parsed.pathname !== "")) {
-        throw new Error("Enter the server origin only, such as http://192.168.1.25:3420.");
-      }
-      return parsed.origin;
-    }
-
     async function connect(event) {
-      event.preventDefault();
+      if (event) event.preventDefault();
       connectButton.disabled = true;
-      setStatus("Checking the PC and verifying the Authorization header...", false);
-      serverUrl = "";
-      bearerToken = "";
+      setStatus("Verifying the Authorization header...", false);
       activeSession = "";
       try {
-        serverUrl = normalizeServerUrl(serverUrlInput.value.trim());
-        bearerToken = document.getElementById("token").value;
-        document.getElementById("token").value = "";
-        if (!bearerToken) throw new Error("Enter the PC access token.");
+        const checked = await requestJson("/api/v1/auth-check", "GET");
+        if (!checked || checked.authenticated !== true) {
+          throw new Error("The PC did not verify the Authorization header.");
+        }
 
         const created = await requestJson("/api/v1/request-session", "POST", {});
         if (!created || typeof created.session !== "string" || !created.session) {
@@ -200,18 +193,13 @@ export const desktopPage = String.raw`<!doctype html>
         }
         activeSession = created.session;
 
-        const verified = await requestJson("/api/v1/session?session=" + encodeURIComponent(activeSession), "GET");
-        if (!verified || verified.valid !== true || verified.session !== activeSession) {
-          throw new Error("The PC did not verify the session with the Authorization header.");
-        }
-
         connectSection.hidden = true;
         desktopSection.hidden = false;
-        setStatus("Connected. The Authorization bearer header and session were verified.", false);
+        setStatus("Connected.", false);
         await refreshScreen();
       } catch (error) {
         let message = error instanceof Error ? error.message : "Connection failed.";
-        if (activeSession && bearerToken) {
+        if (activeSession) {
           try {
             await requestJson("/api/v1/session?session=" + encodeURIComponent(activeSession), "DELETE");
           } catch (cleanupError) {
@@ -221,8 +209,6 @@ export const desktopPage = String.raw`<!doctype html>
         }
         setStatus(message, true);
         activeSession = "";
-        bearerToken = "";
-        serverUrl = "";
       } finally {
         connectButton.disabled = false;
       }
@@ -249,7 +235,7 @@ export const desktopPage = String.raw`<!doctype html>
         screenshotObjectUrl = nextUrl;
         screen.src = nextUrl;
         if (previousUrl) URL.revokeObjectURL(previousUrl);
-        setStatus("Connected. The Authorization bearer header and session were verified.", false);
+        setStatus("Connected.", false);
       } catch (error) {
         setStatus(error instanceof Error ? error.message : "Could not refresh the PC screen.", true);
       } finally {
@@ -346,14 +332,11 @@ export const desktopPage = String.raw`<!doctype html>
         }
       }
       activeSession = "";
-      bearerToken = "";
-      serverUrl = "";
       screen.removeAttribute("src");
       if (screenshotObjectUrl) URL.revokeObjectURL(screenshotObjectUrl);
       screenshotObjectUrl = "";
       desktopSection.hidden = true;
       connectSection.hidden = false;
-      document.getElementById("token").value = "";
     }
 
     form.addEventListener("submit", connect);
@@ -376,6 +359,11 @@ export const desktopPage = String.raw`<!doctype html>
       fullscreenButton.textContent = document.fullscreenElement === screenWrap ? "Exit fullscreen" : "Enter fullscreen";
     });
     document.getElementById("disconnect-button").addEventListener("click", disconnect);
+    if (autoConnect) {
+      connectSection.hidden = true;
+      connect();
+    }
   </script>
 </body>
 </html>`;
+}
