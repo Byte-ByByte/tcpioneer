@@ -71,25 +71,6 @@ export const homePage = `<!doctype html>
 </body>
 </html>`;
 
-export const unauthorizedAiPage = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101827">
-  <title>Authorization required - TCPIOneer</title>
-  <style>${styles}</style>
-</head>
-<body>
-  <div class="hero">
-    <main>
-      <h1>Authorization required</h1>
-      <p class="intro">Send <code>Authorization: Bearer &lt;access-token&gt;</code> and open /ai again. The HTTP API is at /api using the same header.</p>
-    </main>
-  </div>
-</body>
-</html>`;
-
 export function desktopPage(token: string, autoConnect = false): string {
     const bearerToken = JSON.stringify(token);
     const shouldAutoConnect = autoConnect ? "true" : "false";

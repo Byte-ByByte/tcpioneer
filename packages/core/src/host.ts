@@ -1,13 +1,13 @@
 import readline from "node:readline"
-import HostConfig from "./util/config";
+import HostConfig from "./config";
 import { readFile, access, constants } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
 import  * as http from "node:http"
+<<<<<<< HEAD
 import * as messages from "./util/messages"
 import * as path from "node:path"
 import { Logger, LogSeverity } from "./util/logger";
 import { captureScreenshot, DesktopInputError, DesktopUnsupportedError, performDesktopAction } from "./desktop";
-import { desktopPage, homePage, unauthorizedAiPage } from "./ui";
+import { desktopPage, homePage } from "./ui";
 
 const httpApiDescription = {
     service: "TCPIOneer",
@@ -46,6 +46,16 @@ type SessionEntry = {
     createdAt: number;
     expiresAt: number;
 };
+=======
+import * as messages from "./messages"
+import { Logger, LogSeverity } from "./logger";
+import { EndpointFamily } from "./endpoint";
+import globalEndpointArray from "./apiarray";
+
+export * as messages from "./messages"
+export { default as HostConfig } from "./config";
+export * as logger from "./logger"
+>>>>>>> 675d251171ef04fc95381cc71331ebbf8612e493
 
 readline.emitKeypressEvents(process.stdin);
 
@@ -53,31 +63,24 @@ if (process.stdin.isTTY) {
   process.stdin.setRawMode(true);
 }
 
-export * as messages from "./util/messages"
-export { default as HostConfig } from "./util/config";
-export * as logger from "./util/logger"
-
 export class Host {
     logger: Logger;
     host: string;
     port: number;
     private token: string;
-    private readonly sessions = new Map<string, SessionEntry>();
-    private readonly sessionTtlMs = 60 * 60 * 1000;
-    guideLocation: string;
+    endpointFamily: EndpointFamily<Host>;
 
     constructor(config: HostConfig) {
         this.logger = config.logger
         this.host = config.server.host
         this.port = config.server.port
         this.token = config.server.token
-        this.guideLocation = config.server.guide.location
-        this.shortcutListener = this.shortcutListener.bind(this)
+
+        this.endpointFamily = new EndpointFamily<Host>(this, globalEndpointArray);
     }
-
-    private sessionsPermitted = true;
-
+    
     async start() {
+<<<<<<< HEAD
         const browserHost = this.host === "0.0.0.0" || this.host === "::" ? "127.0.0.1" : this.host;
         const formattedHost = browserHost.includes(":") ? `[${browserHost}]` : browserHost;
         const baseUrl = `http://${formattedHost}:${this.port}`;
@@ -87,44 +90,21 @@ export class Host {
             String(this.port),
             baseUrl
         ]));
+=======
+        console.log(messages.startText([new Date().toUTCString(), this.host, String(this.port)]));
+>>>>>>> 675d251171ef04fc95381cc71331ebbf8612e493
 
-        if (process.stdin.isTTY) {
-            process.stdin.on('keypress', this.shortcutListener);
-        }
+        process.stdin.on('keypress', this.shortcutListener);
 
-        const server = http.createServer(async (req, res) => {
-            try {
-                await this.serverResponse(req, res);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                this.logger.error("HTTPServer", message);
-                if (!res.headersSent) {
-                    const status = error instanceof DesktopInputError || message === "invalid JSON body"
-                        ? 400
-                        : error instanceof DesktopUnsupportedError ? 501
-                        : message === "request body exceeds 1 MiB" ? 413 : 500;
-                    this.sendJson(res, status, { ok: false, error: status === 500 ? "request failed" : message });
-                } else {
-                    res.destroy();
-                }
-            }
-        });
+        const server = http.createServer(this.serverResponse.bind(this));
 
-        await new Promise<void>((resolve, reject) => {
-            server.once('error', reject);
-            server.listen(this.port, this.host, () => {
-                server.removeListener('error', reject);
-                resolve();
-            });
-        });
-
-        this.logger.info("HTTPServer", `Listening on http://${this.host}:${this.port}`);
+        server.listen(this.port, this.host);
     }
 
     async serverResponse(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        const requestUrl = req.url ?? "/";
-        const url = new URL(requestUrl, `http://${this.host}:${this.port}`);
+        this.logger.log(LogSeverity.Debug, "HTTPServer", `New request on url ${req.url}`)
 
+<<<<<<< HEAD
         this.logger.log(LogSeverity.Debug, "HTTPServer", `New request on url ${requestUrl}`)
 
         if (req.method === "OPTIONS") {
@@ -198,7 +178,6 @@ export class Host {
         }
 
         if (req.method === "GET" && url.pathname === "/api/v1") {
-            if (!this.requireBearerToken(req, res)) return;
             this.sendJson(res, 200, httpApiDescription, { "cache-control": "no-store" });
             return;
         }
@@ -254,35 +233,23 @@ export class Host {
         res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; },
         pathname: string
     ) {
-        const wantsHtml = this.wantsHtml(req);
-        if (!this.hasValidBearerToken(req)) {
-            if (wantsHtml) {
-                res.writeHead(401, {
-                    "content-type": "text/html; charset=utf-8",
-                    "cache-control": "no-store",
-                    "x-content-type-options": "nosniff",
-                    "Access-Control-Allow-Origin": "*"
-                });
-                res.end(unauthorizedAiPage);
-                return;
-            }
-
-            this.sendJson(res, 401, {
-                ok: false,
-                authenticated: false,
-                error: "invalid or missing Authorization bearer token",
-                api: "/api"
-            }, { "cache-control": "no-store" });
-            return;
-        }
-
-        if (pathname === "/ai" && wantsHtml) {
+        if (pathname === "/ai" && this.wantsHtml(req)) {
             res.writeHead(200, {
                 "content-type": "text/html; charset=utf-8",
                 "cache-control": "no-store",
                 "x-content-type-options": "nosniff"
             });
             res.end(desktopPage(this.token, true));
+            return;
+        }
+
+        if (pathname === "/ai" && !this.hasValidBearerToken(req)) {
+            this.sendJson(res, 401, {
+                ok: false,
+                authenticated: false,
+                error: "invalid or missing Authorization bearer token",
+                api: "/api"
+            }, { "cache-control": "no-store" });
             return;
         }
 
@@ -490,35 +457,19 @@ export class Host {
 
         res.writeHead(status, responseHeaders);
         res.end(JSON.stringify(payload));
+=======
+        this.endpointFamily.runMatchingEndpoint(req, res)
+>>>>>>> 675d251171ef04fc95381cc71331ebbf8612e493
     }
 
     shortcutListener(_: string, key: readline.Key) {
-        if (key.sequence === '\x7f' || (key.ctrl && key.name === 'h')) {
+
+        if (key.sequence == '\x7f') { // Historically, Ctrl+H mapped to backspace in ASCII. In the terminal, that's also the case, so we listen for it.
             console.log(messages.helpText([]));
-            return;
         }
 
-        if (key.ctrl && key.meta && key.name === 'a') {
-            this.sessionsPermitted = !this.sessionsPermitted;
-            this.logger.notice("Host", `Session creation toggled: ${this.sessionsPermitted ? "ENABLED" : "DISABLED"}`);
-            return;
-        }
-
-        if (key.ctrl && key.meta && key.name === 'c') {
-            this.logger.notice("Host", "Graceful shutdown requested by operator.");
-            process.exit(0);
-            return;
-        }
-
-        if (key.ctrl && key.meta && key.shift && key.name === 'f') {
-            this.logger.emergency("Host", "Emergency failsafe triggered. Force quitting now.");
+        if (key.ctrl && key.name == 'c') {
             process.exit(1);
-            return;
-        }
-
-        if (key.ctrl && key.name === 'c') {
-            process.exit(1);
-            return;
         }
     }
 
@@ -526,12 +477,13 @@ export class Host {
         return urlPath === "/guide" || urlPath.startsWith("/guide/");
     }
 
-    async readFileSafe(path: string) {
+    async readFileSafe(path: string): Promise<string | ""> {
         try {
             let data = await readFile(path, 'utf8');
             return data;
         } catch (error) {
-            console.error('Error reading config:', error instanceof Error ? error.message : String(error));
+            this.logger.error('Error reading file:', error instanceof Error ? error.message : String(error));
+            return "";
         }
     }
 

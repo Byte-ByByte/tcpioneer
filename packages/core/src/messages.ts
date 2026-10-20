@@ -10,12 +10,15 @@ export const startText: TextGenerator = (textinput) => {
     ${chalk.blue("-- Server Info --")}
     ${chalk.green("Host: ")} ${textinput[1]}
     ${chalk.green("Port: ")} ${textinput[2]}
+<<<<<<< HEAD:packages/core/src/util/messages.ts
 
     ${chalk.blue("-- Connection --")}
     ${chalk.green("Browser: ")} ${textinput[3]}
     ${chalk.green("AIs: ")} GET ${textinput[3]}/ai
     ${chalk.green("HTTP API: ")} GET ${textinput[3]}/api
     ${chalk.green("Authorization: ")} Bearer <access-token from config.json>
+=======
+>>>>>>> 675d251171ef04fc95381cc71331ebbf8612e493:packages/core/src/messages.ts
 
     ${chalk.gray("Ctrl + H for shortcut help")}
 
