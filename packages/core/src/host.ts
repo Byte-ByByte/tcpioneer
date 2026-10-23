@@ -5,7 +5,10 @@ import  * as http from "node:http"
 import * as messages from "./messages"
 import { Logger, LogSeverity } from "./logger";
 import { EndpointFamily } from "./endpoint";
-import globalEndpointArray from "./apiarray";
+import globalEndpointArray from "./api";
+import { Session, SessionManager } from "./session";
+import { createHash } from 'node:crypto';
+import { Capability, namesToCapabilities } from "./capabilities";
 
 export * as messages from "./messages"
 export { default as HostConfig } from "./config";
@@ -21,16 +24,38 @@ export class Host {
     logger: Logger;
     host: string;
     port: number;
-    private token: string;
+
+    token: string;
+    tokenSHA256: Buffer<ArrayBuffer>;
+
     endpointFamily: EndpointFamily<Host>;
+    readonly sessions: SessionManager;
+    newSessionCapabilities: Capability[];
+
+    timeout: number;
+    expiryDays: number;
+    expiryHours: number;
+    expiryMinutes: number;
+    expirySeconds: number;
+    lockedUntil: Date | null;
 
     constructor(config: HostConfig) {
         this.logger = config.logger
         this.host = config.server.host
         this.port = config.server.port
         this.token = config.server.token
+        this.sessions = new SessionManager(config.server.session.timeout);
+        this.tokenSHA256 = createHash('sha256').update(this.token).digest();
+        this.newSessionCapabilities = namesToCapabilities(config.server.session.capabilities);
 
         this.endpointFamily = new EndpointFamily<Host>(this, globalEndpointArray);
+
+        this.timeout = config.server.session.timeout
+        this.expiryDays = config.server.session.expiryOffset.days
+        this.expiryHours = config.server.session.expiryOffset.hours
+        this.expiryMinutes = config.server.session.expiryOffset.minutes
+        this.expirySeconds = config.server.session.expiryOffset.seconds
+        this.lockedUntil = config.server.lockedUntil
     }
     
     async start() {
@@ -81,5 +106,9 @@ export class Host {
         } catch {
             return false;
         }
+    }
+
+    canCreateNewSession(): boolean {
+        return true; // NOTE: Placeholder
     }
 }
