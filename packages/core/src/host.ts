@@ -1,4 +1,5 @@
 import readline from "node:readline"
+<<<<<<< HEAD
 import HostConfig from "./config";
 import { readFile, access, constants } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -12,6 +13,46 @@ import { DesktopInputError, DesktopUnsupportedError } from "./desktop";
 export * as messages from "./messages"
 export { default as HostConfig } from "./config";
 export * as logger from "./logger"
+=======
+import HostConfig from "./util/config";
+import { readFile, access, constants } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import  * as http from "node:http"
+import * as messages from "./util/messages"
+import * as path from "node:path"
+import { Logger, LogSeverity } from "./util/logger";
+import { captureScreenshot, DesktopInputError, DesktopUnsupportedError, performDesktopAction } from "./desktop";
+import { desktopPage, homePage } from "./ui";
+
+const aiApiDescription = {
+    service: "TCPIOneer",
+    authentication: {
+        type: "Bearer",
+        header: "Authorization",
+        format: "Bearer <access-token>",
+        verify: {
+            method: "GET",
+            path: "/api/v1/auth-check",
+            success: { status: 200, body: { ok: true, authenticated: true } },
+            invalidTokenStatus: 401
+        }
+    },
+    session: {
+        create: { method: "POST", path: "/api/v1/request-session", body: {} },
+        inspect: { method: "GET", path: "/api/v1/session?session=<session-id>" },
+        delete: { method: "DELETE", path: "/api/v1/session?session=<session-id>" }
+    },
+    desktop: {
+        control: {
+            method: "POST",
+            path: "/api/v1/control",
+            body: { session: "<session-id>", action: { action: "mouse.click", button: "left" } }
+        },
+        screenshot: { method: "POST", path: "/api/v1/screenshot", body: { session: "<session-id>" } }
+    },
+    security: "Send the access token only in the Authorization bearer header, never in the URL."
+};
+>>>>>>> parent of 4b57c7b (d)
 
 type SessionEntry = {
     createdAt: number;
@@ -176,6 +217,7 @@ export class Host {
             new Date().toUTCString(),
             this.host,
             String(this.port),
+            this.token,
             baseUrl
         ]));
 
@@ -219,7 +261,321 @@ export class Host {
             return;
         }
 
+<<<<<<< HEAD
         this.sendJson(res, 404, { ok: false, error: "not found" });
+=======
+        if (requestUrl === "/helloworld") {
+            res.writeHead(200, {
+                'content-type': 'text/plain',
+                'Access-Control-Allow-Origin': '*'
+            });
+            res.end('Hello, world!');
+            return;
+        }
+
+        if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/home" || url.pathname === "/desktop")) {
+            res.writeHead(200, {
+                "content-type": "text/html; charset=utf-8",
+                "cache-control": "no-store",
+                "x-content-type-options": "nosniff"
+            });
+            res.end(url.pathname === "/desktop" ? desktopPage : homePage);
+            return;
+        }
+
+        if (req.method === "GET" && url.pathname === "/ai") {
+            this.sendJson(res, 200, aiApiDescription, {
+                "cache-control": "no-store"
+            });
+            return;
+        }
+
+        if (requestUrl && this.checkForGuide(requestUrl)) {
+            const guideRoot = path.isAbsolute(this.guideLocation)
+                ? this.guideLocation
+                : path.resolve(process.cwd(), this.guideLocation);
+
+            const guidePath = requestUrl
+                .slice("/guide".length)
+                .replace(/^\/+/, "");
+
+            let resolvedTarget = path.resolve(guideRoot, guidePath || "index.md");
+
+            if (!(await this.checkFile(resolvedTarget))) {
+                if (await this.checkFile(`${resolvedTarget}.md`)) {
+                    resolvedTarget = `${resolvedTarget}.md`;
+                } else if (await this.checkFile(path.join(resolvedTarget, "index.md"))) {
+                    resolvedTarget = path.join(resolvedTarget, "index.md");
+                }
+            }
+
+            if (await this.checkFile(resolvedTarget)) {
+                res.writeHead(200, {
+                    "content-type": "text/markdown; charset=utf-8",
+                    "Access-Control-Allow-Origin": "*"
+                });
+
+                res.end(await this.readFileSafe(resolvedTarget));
+            } else {
+                res.writeHead(302, {
+                    "location": "https://github.com/Byte-ByByte/tcpioneer-guide/blob/e5563ef59509f3d37180ea3164c2a81bd0d3017e/index.md",
+                    "cache-control": "no-store"
+                });
+                res.end();
+            }
+
+            return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/v1/request-session") {
+            await this.handleRequestSession(req, res);
+            return;
+        }
+
+        if (req.method === "GET" && url.pathname === "/api/v1/auth-check") {
+            if (!this.hasValidBearerToken(req)) {
+                this.sendJson(res, 401, { ok: false, authenticated: false, error: "invalid or missing Authorization bearer token" }, {
+                    "cache-control": "no-store"
+                });
+                return;
+            }
+
+            this.sendJson(res, 200, { ok: true, authenticated: true }, {
+                "cache-control": "no-store"
+            });
+            return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/v1/control") {
+            await this.handleControl(req, res);
+            return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/v1/execute") {
+            this.sendJson(res, 410, {
+                ok: false,
+                error: "arbitrary command execution is disabled; use the desktop control API"
+            });
+            return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/v1/screenshot") {
+            await this.handleScreenshot(req, res);
+            return;
+        }
+
+        if (req.method === "DELETE" && url.pathname === "/api/v1/session") {
+            await this.handleDeleteSession(req, res);
+            return;
+        }
+
+        if (req.method === "GET" && url.pathname === "/api/v1/session") {
+            await this.handleSessionInfo(req, res);
+            return;
+        }
+
+        res.writeHead(404, { 'content-type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: false, error: 'not found' }));
+    }
+
+    private async handleRequestSession(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
+        if (!this.hasValidBearerToken(req)) {
+            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
+            return;
+        }
+
+        if (!this.sessionsPermitted) {
+            this.sendJson(res, 403, { ok: false, error: 'session creation is disabled by server operator' });
+            return;
+        }
+
+        const sessionId = randomUUID();
+        const now = Date.now();
+        this.sessions.set(sessionId, { createdAt: now, expiresAt: now + this.sessionTtlMs });
+
+        this.sendJson(res, 201, {
+            ok: true,
+            session: sessionId,
+            "session-key": sessionId,
+            createdAt: new Date(now).toISOString(),
+            created: new Date(now).toISOString(),
+            expiresAt: new Date(now + this.sessionTtlMs).toISOString(),
+            expiry: new Date(now + this.sessionTtlMs).toISOString(),
+            capabilities: ["mouse", "keyboard", "screenshot"],
+            usable: true
+        });
+    }
+
+    private async handleControl(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
+        if (!this.hasValidBearerToken(req)) {
+            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
+            return;
+        }
+
+        const body = await this.readJsonBody(req);
+        const payload = this.asObject(body);
+        const sessionKey = typeof payload?.session === 'string' ? payload.session : '';
+
+        if (!sessionKey || !payload) {
+            this.sendJson(res, 400, { ok: false, error: 'body must include a session and action' });
+            return;
+        }
+
+        const session = this.getSession(sessionKey);
+        if (!session) {
+            this.sendJson(res, 401, { ok: false, error: 'invalid or expired session' });
+            return;
+        }
+
+        await performDesktopAction(payload.action);
+        this.sendJson(res, 200, { ok: true, action: payload.action });
+    }
+
+    private async handleScreenshot(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
+        if (!this.hasValidBearerToken(req)) {
+            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
+            return;
+        }
+
+        const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
+        const body = this.asObject(await this.readJsonBody(req));
+        const sessionKey = (typeof body?.session === 'string' ? body.session : '') || (url.searchParams.get('session') ?? '');
+        if (!sessionKey || !this.getSession(sessionKey)) {
+            this.sendJson(res, 401, { ok: false, error: 'invalid or expired session' });
+            return;
+        }
+
+        const screenshot = await captureScreenshot();
+        res.writeHead(200, {
+            "content-type": "image/jpeg",
+            "content-length": screenshot.length,
+            "cache-control": "no-store",
+            "Access-Control-Allow-Origin": "*"
+        });
+        res.end(screenshot);
+    }
+
+    private async handleDeleteSession(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
+        if (!this.hasValidBearerToken(req)) {
+            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
+            return;
+        }
+
+        const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
+        const body = this.asObject(await this.readJsonBody(req));
+        const sessionKey = (typeof body?.session === 'string' ? body.session : '') || (url.searchParams.get('session') ?? '');
+
+        if (!sessionKey) {
+            this.sendJson(res, 400, { ok: false, error: 'session is required' });
+            return;
+        }
+
+        const existed = this.sessions.has(sessionKey);
+        this.sessions.delete(sessionKey);
+
+        this.sendJson(res, 200, {
+            ok: true,
+            deleted: existed
+        });
+    }
+
+    private async handleSessionInfo(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
+        if (!this.hasValidBearerToken(req)) {
+            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
+            return;
+        }
+
+        const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
+        const sessionKey = url.searchParams.get('session') ?? '';
+
+        if (!sessionKey) {
+            this.sendJson(res, 400, { ok: false, error: 'session query parameter is required' });
+            return;
+        }
+
+        const session = this.getSession(sessionKey);
+        if (!session) {
+            this.sendJson(res, 404, { ok: false, error: 'session not found or expired' });
+            return;
+        }
+
+        this.sendJson(res, 200, {
+            ok: true,
+            session: sessionKey,
+            createdAt: new Date(session.createdAt).toISOString(),
+            expiresAt: new Date(session.expiresAt).toISOString(),
+            valid: true
+        });
+    }
+
+    private hasValidBearerToken(req: http.IncomingMessage): boolean {
+        const header = req.headers.authorization ?? '';
+        const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';
+        return token === this.token;
+    }
+
+    private getSession(sessionKey: string): SessionEntry | undefined {
+        const session = this.sessions.get(sessionKey);
+        if (!session) return undefined;
+
+        if (Date.now() > session.expiresAt) {
+            this.sessions.delete(sessionKey);
+            return undefined;
+        }
+
+        return session;
+    }
+
+    private async readJsonBody(req: http.IncomingMessage): Promise<unknown> {
+        return new Promise((resolve, reject) => {
+            const chunks: Buffer[] = [];
+            let size = 0;
+
+            req.on('data', (chunk) => {
+                const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                size += buffer.length;
+                if (size > 1024 * 1024) {
+                    if (size - buffer.length <= 1024 * 1024) {
+                        reject(new Error("request body exceeds 1 MiB"));
+                    }
+                    return;
+                }
+                chunks.push(buffer);
+            });
+
+            req.on('end', () => {
+                const raw = Buffer.concat(chunks).toString('utf8').trim();
+                if (!raw) {
+                    resolve({});
+                    return;
+                }
+
+                try {
+                    resolve(JSON.parse(raw));
+                } catch {
+                    reject(new Error('invalid JSON body'));
+                }
+            });
+
+            req.on('error', (error) => reject(error));
+        });
+    }
+
+    private asObject(value: unknown): Record<string, unknown> | undefined {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+        return value as Record<string, unknown>;
+    }
+
+    private sendJson(res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }, status: number, payload: unknown, headers: Record<string, string> = {}) {
+        const responseHeaders = {
+            'content-type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            ...headers
+        };
+
+        res.writeHead(status, responseHeaders);
+        res.end(JSON.stringify(payload));
+>>>>>>> parent of 4b57c7b (d)
     }
 
     shortcutListener(_: string, key: readline.Key) {
