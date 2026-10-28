@@ -83,55 +83,7 @@ export const desktopPage = String.raw`<!doctype html>
     #screen-wrap:fullscreen #screen { max-width: 100vw; max-height: calc(100vh - 24px); border: 0; }
     .hint { font-size: .9rem; }
     [hidden] { display: none !important; }
-<<<<<<< HEAD
-`;
-
-export const homePage = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101827">
-  <title>TCPIOneer</title>
-  <style>${styles}</style>
-</head>
-<body>
-  <div class="hero">
-    <main>
-      <h1>TCPIOneer</h1>
-      <p class="intro">Connect to this PC from a browser, or use the HTTP API.</p>
-      <nav class="choices" aria-label="Choose an option">
-        <a class="card" href="/desktop">
-          <span class="icon" aria-hidden="true">&#128421;</span>
-          <h2>Remote desktop</h2>
-          <p>Open a live view of this PC. The Authorization header is verified automatically.</p>
-        </a>
-        <a class="card" href="https://github.com/Byte-ByByte/tcpioneer-guide/blob/e5563ef59509f3d37180ea3164c2a81bd0d3017e/index.md" target="_blank" rel="noopener noreferrer">
-          <span class="icon" aria-hidden="true">&#128214;</span>
-          <h2>Open the guide</h2>
-          <p>Read the TCPIOneer documentation on GitHub.</p>
-        </a>
-      </nav>
-      <footer>AIs: GET /ai with an Authorization bearer header, or GET /api for the HTTP API.</footer>
-    </main>
-  </div>
-</body>
-</html>`;
-
-export function desktopPage(token: string, autoConnect = false): string {
-    const bearerToken = JSON.stringify(token);
-    const shouldAutoConnect = autoConnect ? "true" : "false";
-    return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101827">
-  <title>Remote desktop - TCPIOneer</title>
-  <style>${styles}</style>
-=======
   </style>
->>>>>>> parent of 4b57c7b (d)
 </head>
 <body>
   <header>

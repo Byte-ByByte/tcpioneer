@@ -27,6 +27,7 @@ const virtualKeys: Record<string, number> = {
     DOWN: 0x28,
     INSERT: 0x2d,
     DELETE: 0x2e,
+    PRINTSCREEN: 0x2c,
     META: 0x5b,
     WIN: 0x5b
 };
@@ -58,8 +59,12 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 public static class TcpioneerDesktopInput {
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetCursorPos(int x, int y);
 
@@ -71,6 +76,26 @@ public static class TcpioneerDesktopInput {
 
     [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int index);
+
+    static TcpioneerDesktopInput() {
+        try {
+            SetProcessDPIAware();
+        } catch {}
+    }
+
+    private static bool IsExtendedKey(byte key) {
+        return key == 0x21 || key == 0x22 || key == 0x23 || key == 0x24 ||
+               key == 0x25 || key == 0x26 || key == 0x27 || key == 0x28 ||
+               key == 0x2d || key == 0x2e || key == 0x5b || key == 0x5c ||
+               key == 0x2c;
+    }
+
+    public static void SendKeyEvent(byte key, bool isUp) {
+        uint flags = 0;
+        if (IsExtendedKey(key)) flags |= 1; // KEYEVENTF_EXTENDEDKEY
+        if (isUp) flags |= 2; // KEYEVENTF_KEYUP
+        keybd_event(key, 0, flags, UIntPtr.Zero);
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Input {
@@ -112,13 +137,13 @@ public static class TcpioneerDesktopInput {
             down.Type = 1;
             down.Union.Keyboard = new KeyboardInput();
             down.Union.Keyboard.ScanCode = character;
-            down.Union.Keyboard.Flags = 4;
+            down.Union.Keyboard.Flags = 4; // KEYEVENTF_UNICODE
 
             Input up = new Input();
             up.Type = 1;
             up.Union.Keyboard = new KeyboardInput();
             up.Union.Keyboard.ScanCode = character;
-            up.Union.Keyboard.Flags = 6;
+            up.Union.Keyboard.Flags = 6; // KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
 
             Input[] inputs = new Input[] { down, up };
             if (SendInput(2, inputs, Marshal.SizeOf(typeof(Input))) != 2) {
@@ -142,6 +167,24 @@ public static class TcpioneerDesktopInput {
             graphics.CopyFromScreen(left, top, 0, 0, bitmap.Size);
             bitmap.Save(stream, ImageFormat.Jpeg);
             return stream.ToArray();
+        }
+    }
+
+    public static void DragMouse(int fromX, int fromY, int toX, int toY, uint downFlag, uint upFlag) {
+        if (!SetCursorPos(fromX, fromY)) {
+            throw new InvalidOperationException("Could not move mouse to start position.");
+        }
+        mouse_event(downFlag, 0, 0, 0, UIntPtr.Zero);
+        try {
+            int steps = 10;
+            for (int i = 1; i <= steps; i++) {
+                int cx = fromX + (toX - fromX) * i / steps;
+                int cy = fromY + (toY - fromY) * i / steps;
+                SetCursorPos(cx, cy);
+                Thread.Sleep(5);
+            }
+        } finally {
+            mouse_event(upFlag, 0, 0, 0, UIntPtr.Zero);
         }
     }
 }
@@ -173,18 +216,7 @@ switch ($data.action) {
             'middle' { @(32, 64) }
             default { throw 'Unsupported mouse button.' }
         }
-        if (-not [TcpioneerDesktopInput]::SetCursorPos([int]$data.fromX, [int]$data.fromY)) {
-            throw 'Windows could not move the mouse pointer to the drag start.'
-        }
-        [TcpioneerDesktopInput]::mouse_event([uint32]$buttonFlags[0], 0, 0, 0, [UIntPtr]::Zero)
-        try {
-            Start-Sleep -Milliseconds 50
-            if (-not [TcpioneerDesktopInput]::SetCursorPos([int]$data.toX, [int]$data.toY)) {
-                throw 'Windows could not move the mouse pointer to the drag end.'
-            }
-        } finally {
-            [TcpioneerDesktopInput]::mouse_event([uint32]$buttonFlags[1], 0, 0, 0, [UIntPtr]::Zero)
-        }
+        [TcpioneerDesktopInput]::DragMouse([int]$data.fromX, [int]$data.fromY, [int]$data.toX, [int]$data.toY, [uint32]$buttonFlags[0], [uint32]$buttonFlags[1])
         [Console]::Out.WriteLine('OK')
     }
     'mouse.scroll' {
@@ -193,10 +225,10 @@ switch ($data.action) {
     }
     'keyboard.press' {
         foreach ($key in $data.keys) {
-            [TcpioneerDesktopInput]::keybd_event([byte]$key, 0, 0, [UIntPtr]::Zero)
+            [TcpioneerDesktopInput]::SendKeyEvent([byte]$key, $false)
         }
         for ($index = $data.keys.Count - 1; $index -ge 0; $index--) {
-            [TcpioneerDesktopInput]::keybd_event([byte]$data.keys[$index], 0, 2, [UIntPtr]::Zero)
+            [TcpioneerDesktopInput]::SendKeyEvent([byte]$data.keys[$index], $true)
         }
         [Console]::Out.WriteLine('OK')
     }
@@ -294,11 +326,19 @@ export async function performDesktopAction(input: unknown): Promise<string> {
     }
 
     if (value.action === "keyboard.press") {
-        if (!Array.isArray(value.keys) || value.keys.length < 1 || value.keys.length > 4 ||
-            !value.keys.every((key) => typeof key === "string" && Object.hasOwn(virtualKeys, key.toUpperCase()))) {
-            throw new DesktopInputError("keyboard.press keys must contain 1 to 4 supported key names.");
+        if (!Array.isArray(value.keys) || value.keys.length < 1 || value.keys.length > 4) {
+            throw new DesktopInputError("keyboard.press keys must contain 1 to 4 key names or virtual key numbers.");
         }
-        const keys = value.keys.map((key) => virtualKeys[(key as string).toUpperCase()]);
+        const keys: number[] = [];
+        for (const key of value.keys) {
+            if (typeof key === "number" && Number.isInteger(key) && key >= 1 && key <= 255) {
+                keys.push(key);
+            } else if (typeof key === "string" && Object.hasOwn(virtualKeys, key.toUpperCase())) {
+                keys.push(virtualKeys[key.toUpperCase()]);
+            } else {
+                throw new DesktopInputError(`Unsupported key: ${String(key)}`);
+            }
+        }
         if (new Set(keys).size !== keys.length) {
             throw new DesktopInputError("keyboard.press cannot contain the same key more than once.");
         }
