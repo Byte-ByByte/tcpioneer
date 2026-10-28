@@ -48,7 +48,9 @@ type DesktopAction =
     | { action: "mouse.drag"; fromX: number; fromY: number; toX: number; toY: number; button: "left" | "right" | "middle" }
     | { action: "mouse.scroll"; amount: number }
     | { action: "keyboard.press"; keys: number[] }
-    | { action: "keyboard.type"; text: string };
+    | { action: "keyboard.type"; text: string }
+    | { action: "screenshot"; maxWidth: number; quality: number }
+    | { action: "accessibility"; maxNodes: number; maxDepth: number };
 
 const powershellProgram = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -152,7 +154,7 @@ public static class TcpioneerDesktopInput {
         }
     }
 
-    public static byte[] CaptureJpeg() {
+    public static byte[] CaptureJpeg(int maxWidth, long quality) {
         int left = GetSystemMetrics(76);
         int top = GetSystemMetrics(77);
         int width = GetSystemMetrics(78);
@@ -165,8 +167,28 @@ public static class TcpioneerDesktopInput {
         using (Graphics graphics = Graphics.FromImage(bitmap))
         using (MemoryStream stream = new MemoryStream()) {
             graphics.CopyFromScreen(left, top, 0, 0, bitmap.Size);
-            bitmap.Save(stream, ImageFormat.Jpeg);
-            return stream.ToArray();
+            Bitmap output = bitmap;
+            if (width > maxWidth) {
+                int scaledHeight = Math.Max(1, (int)Math.Round((double)height * maxWidth / width));
+                output = new Bitmap(maxWidth, scaledHeight);
+                using (Graphics resizeGraphics = Graphics.FromImage(output)) {
+                    resizeGraphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    resizeGraphics.DrawImage(bitmap, 0, 0, maxWidth, scaledHeight);
+                }
+            }
+
+            try {
+                ImageCodecInfo jpegCodec = Array.Find(ImageCodecInfo.GetImageEncoders(), delegate(ImageCodecInfo codec) {
+                    return codec.MimeType == "image/jpeg";
+                });
+                using (EncoderParameters parameters = new EncoderParameters(1)) {
+                    parameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
+                    output.Save(stream, jpegCodec, parameters);
+                }
+                return stream.ToArray();
+            } finally {
+                if (!Object.ReferenceEquals(output, bitmap)) output.Dispose();
+            }
         }
     }
 
@@ -237,19 +259,63 @@ switch ($data.action) {
         [Console]::Out.WriteLine('OK')
     }
     'screenshot' {
-        [Console]::Out.WriteLine([Convert]::ToBase64String([TcpioneerDesktopInput]::CaptureJpeg()))
+        $image = [Convert]::ToBase64String([TcpioneerDesktopInput]::CaptureJpeg([int]$data.maxWidth, [long]$data.quality))
+        $capture = [ordered]@{
+            image = $image
+            width = [TcpioneerDesktopInput]::GetSystemMetrics(78)
+            height = [TcpioneerDesktopInput]::GetSystemMetrics(79)
+            left = [TcpioneerDesktopInput]::GetSystemMetrics(76)
+            top = [TcpioneerDesktopInput]::GetSystemMetrics(77)
+        }
+        ConvertTo-Json -InputObject $capture -Compress
+    }
+    'accessibility' {
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        $script:nodeCount = 0
+        function Get-AccessibilityNode($element, [int]$depth, [int]$maxDepth, [int]$maxNodes) {
+            if ($script:nodeCount -ge $maxNodes) { return $null }
+            $current = $element.Current
+            if ($current.IsOffscreen) { return $null }
+            $script:nodeCount++
+            $name = if ($current.IsPassword) { '[password]' } else { [string]$current.Name }
+            if ($name.Length -gt 160) { $name = $name.Substring(0, 160) }
+            $automationId = [string]$current.AutomationId
+            if ($automationId.Length -gt 128) { $automationId = $automationId.Substring(0, 128) }
+            $bounds = $current.BoundingRectangle
+            $node = [ordered]@{
+                name = $name
+                role = $current.ControlType.ProgrammaticName
+                automationId = $automationId
+                enabled = [bool]$current.IsEnabled
+                bounds = @{ x = $bounds.X; y = $bounds.Y; width = $bounds.Width; height = $bounds.Height }
+                children = @()
+            }
+            if ($depth -lt $maxDepth) {
+                $children = $element.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+                foreach ($child in $children) {
+                    if ($script:nodeCount -ge $maxNodes) { break }
+                    $childNode = Get-AccessibilityNode $child ($depth + 1) $maxDepth $maxNodes
+                    if ($null -ne $childNode) { $node.children += ,$childNode }
+                }
+            }
+            return $node
+        }
+        $root = [System.Windows.Automation.AutomationElement]::RootElement
+        $tree = Get-AccessibilityNode $root 0 ([int]$data.maxDepth) ([int]$data.maxNodes)
+        ConvertTo-Json -InputObject $tree -Depth 10 -Compress
     }
     default { throw 'Unsupported desktop action.' }
 }
 `;
 
-function createScript(action: DesktopAction | { action: "screenshot" }): string {
+function createScript(action: DesktopAction): string {
     const payload = Buffer.from(JSON.stringify(action), "utf8").toString("base64");
     const script = powershellProgram.replace("__PAYLOAD__", payload);
     return Buffer.from(script, "utf16le").toString("base64");
 }
 
-async function runPowerShell(action: DesktopAction | { action: "screenshot" }): Promise<string> {
+async function runPowerShell(action: DesktopAction): Promise<string> {
     if (process.platform !== "win32") {
         throw new DesktopUnsupportedError("Desktop control is currently supported only on Windows.");
     }
@@ -358,10 +424,48 @@ export async function performDesktopAction(input: unknown): Promise<string> {
     throw new DesktopInputError("Unsupported action. Use mouse.move, mouse.click, mouse.drag, mouse.scroll, keyboard.press, or keyboard.type.");
 }
 
-export async function captureScreenshot(): Promise<Buffer> {
-    const encoded = await runPowerShell({ action: "screenshot" });
-    if (!encoded || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+export async function captureScreenshot(options: { maxWidth?: number; quality?: number } = {}): Promise<{
+    image: Buffer;
+    width: number;
+    height: number;
+    left: number;
+    top: number;
+}> {
+    const maxWidth = options.maxWidth ?? 1920;
+    const quality = options.quality ?? 65;
+    if (!Number.isInteger(maxWidth) || maxWidth < 320 || maxWidth > 3840 ||
+        !Number.isInteger(quality) || quality < 30 || quality > 90) {
+        throw new DesktopInputError("Screenshot maxWidth must be 320-3840 and quality must be 30-90.");
+    }
+    const encoded = await runPowerShell({ action: "screenshot", maxWidth, quality });
+    try {
+        const capture = JSON.parse(encoded) as { image?: unknown; width?: unknown; height?: unknown; left?: unknown; top?: unknown };
+        if (typeof capture.image !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(capture.image) ||
+            !Number.isInteger(capture.width) || !Number.isInteger(capture.height) ||
+            !Number.isInteger(capture.left) || !Number.isInteger(capture.top)) {
+            throw new Error("invalid capture metadata");
+        }
+        return {
+            image: Buffer.from(capture.image, "base64"),
+            width: capture.width as number,
+            height: capture.height as number,
+            left: capture.left as number,
+            top: capture.top as number
+        };
+    } catch {
         throw new Error("Windows returned an invalid screenshot.");
     }
-    return Buffer.from(encoded, "base64");
+}
+
+export async function captureAccessibilityTree(options: { maxNodes: number; maxDepth: number }): Promise<unknown> {
+    if (!Number.isInteger(options.maxNodes) || options.maxNodes < 1 || options.maxNodes > 500 ||
+        !Number.isInteger(options.maxDepth) || options.maxDepth < 1 || options.maxDepth > 8) {
+        throw new DesktopInputError("Accessibility maxNodes must be 1-500 and maxDepth must be 1-8.");
+    }
+    const result = await runPowerShell({ action: "accessibility", ...options });
+    try {
+        return JSON.parse(result);
+    } catch {
+        throw new Error("Windows returned an invalid accessibility tree.");
+    }
 }

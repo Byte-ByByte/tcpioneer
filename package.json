@@ -1,11 +1,14 @@
 {
   "name": "tcpioneer",
-  "version": "1.0.0",
-  "description": "TCPIOneer monorepo",
+  "version": "1.1.0",
+  "description": "TCPIOneer remote desktop host and AI control API",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "build": "npm --workspace @tcpioneer/core run build && npm --workspace @tcpioneer/cli run build",
-    "build:exe": "npm run build && npx -y pkg -t node16-win-x64 -o dist/tcpioneer.exe packages/cli/dist/main.js && copy dist\\tcpioneer.exe tcpioneer.exe",
+    "build:exe": "npm run build && pkg -t node24-win-x64 -o dist/tcpioneer.exe packages/cli/dist/main.js",
+    "build:icon": "node scripts/build-icon.cjs",
+    "build:installer": "npm run build:exe && npm run build:icon && electron-builder --win nsis",
     "start": "npm run build && npm --workspace @tcpioneer/cli start",
     "test": "npm run build"
   },
@@ -13,15 +16,61 @@
     "tcpioneer",
     "remote-desktop",
     "cli",
-    "monorepo"
+    "ai-api"
   ],
-  "author": "Byte-ByByte",
+  "author": "Byte-By-Byte",
   "license": "MIT",
   "type": "commonjs",
   "workspaces": [
     "packages/*"
   ],
+  "build": {
+    "appId": "com.bytebybyte.tcpioneer",
+    "productName": "TCPIOneer",
+    "copyright": "Copyright © Byte-By-Byte",
+    "artifactName": "${productName}-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/main.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/tcpioneer.exe",
+        "to": "tcpioneer/tcpioneer.exe"
+      },
+      {
+        "from": "guide",
+        "to": "guide"
+      }
+    ],
+    "win": {
+      "icon": "assets/tcpioneer.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TCPIOneer"
+    }
+  },
   "allowScripts": {
     "esbuild@0.27.2": true
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.24.0",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0"
   }
 }
