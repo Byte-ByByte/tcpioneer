@@ -66,7 +66,7 @@ function checkHealth(healthUrl) {
             resolve(response.statusCode === 200);
         };
         const request = healthUrl.startsWith("https:")
-            ? https.get(healthUrl, { rejectUnauthorized: false }, onResponse)
+            ? https.get(healthUrl, onResponse)
             : http.get(healthUrl, onResponse);
         request.setTimeout(1000, () => {
             request.destroy();

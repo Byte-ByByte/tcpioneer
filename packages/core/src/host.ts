@@ -170,16 +170,24 @@ export class Host {
             return;
         }
 
-        if (requestUrl && this.checkForGuide(requestUrl)) {
+        if (this.checkForGuide(url.pathname)) {
             const guideRoot = path.isAbsolute(this.guideLocation)
                 ? this.guideLocation
                 : path.resolve(process.cwd(), this.guideLocation);
 
-            const guidePath = requestUrl
-                .slice("/guide".length)
-                .replace(/^\/+/, "");
+            let guidePath: string;
+            try {
+                guidePath = decodeURIComponent(url.pathname.slice("/guide".length)).replace(/^\/+/, "");
+            } catch {
+                this.sendJson(res, 400, { ok: false, error: "invalid guide path" });
+                return;
+            }
 
             let resolvedTarget = path.resolve(guideRoot, guidePath || "index.md");
+            if (!this.isPathWithinDirectory(guideRoot, resolvedTarget)) {
+                this.sendJson(res, 404, { ok: false, error: "not found" });
+                return;
+            }
 
             if (!(await this.checkFile(resolvedTarget))) {
                 if (await this.checkFile(`${resolvedTarget}.md`)) {
@@ -412,7 +420,7 @@ export class Host {
         const payload = this.asObject(body);
         const sessionKey = typeof payload?.session === 'string' ? payload.session : '';
 
-        if (!sessionKey || !payload) {
+        if (!sessionKey || !payload || !Object.hasOwn(payload, "action")) {
             this.sendJson(res, 400, { ok: false, error: 'body must include a session and action' });
             return;
         }
@@ -535,7 +543,17 @@ export class Host {
     }
 
     private isLocalHumanRequest(req: http.IncomingMessage): boolean {
-        return this.isLoopbackAddress(req.socket.remoteAddress ?? "") && this.isSameOriginRequest(req);
+        if (!this.isLoopbackAddress(req.socket.remoteAddress ?? "") || !this.isSameOriginRequest(req)) {
+            return false;
+        }
+
+        try {
+            const origin = new URL(req.headers.origin ?? "");
+            const hostname = origin.hostname.toLowerCase().replace("[", "").replace("]", "");
+            return hostname === "localhost" || this.isLoopbackAddress(hostname);
+        } catch {
+            return false;
+        }
     }
 
     private isLoopbackAddress(remoteAddress: string): boolean {
@@ -711,6 +729,12 @@ export class Host {
 
     checkForGuide(urlPath: string) {
         return urlPath === "/guide" || urlPath.startsWith("/guide/");
+    }
+
+    private isPathWithinDirectory(directory: string, target: string): boolean {
+        const relative = path.relative(path.resolve(directory), path.resolve(target));
+        return relative === "" ||
+            (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
     }
 
     async readFileSafe(path: string) {

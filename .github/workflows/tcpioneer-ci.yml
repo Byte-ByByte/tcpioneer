@@ -29,6 +29,10 @@ jobs:
       - name: Smoke test the booted server
         shell: pwsh
         run: |
+          @{
+            server = @{ host = "127.0.0.1"; port = 3420 }
+            security = @{}
+          } | ConvertTo-Json -Depth 3 | Set-Content -Path ".\config.json" -Encoding utf8
           $server = Start-Process -FilePath "node" -ArgumentList ".\packages\cli\dist\main.js" -WorkingDirectory $PWD -PassThru
           try {
             $ready = $false
@@ -53,4 +57,5 @@ jobs:
             if (-not $server.HasExited) {
               Stop-Process -Id $server.Id
             }
+            Remove-Item -Path ".\config.json" -ErrorAction SilentlyContinue
           }

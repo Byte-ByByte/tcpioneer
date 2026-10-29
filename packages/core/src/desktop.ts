@@ -346,7 +346,7 @@ async function runPowerShell(action: DesktopAction): Promise<string> {
 
 export async function performDesktopAction(input: unknown): Promise<string> {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
-        throw new Error("action must be a JSON object.");
+        throw new DesktopInputError("action must be a JSON object.");
     }
 
     const value = input as Record<string, unknown>;
