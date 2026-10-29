@@ -151,3 +151,6 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# IntelliJ IDEA (used by jaidenteli80 for some reason)
+.idea/

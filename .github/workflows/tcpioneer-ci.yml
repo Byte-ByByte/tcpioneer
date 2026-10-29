@@ -1,24 +1,162 @@
-name: TCPIOneer CI
+
+name: TCPIOneer CI and Release
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Release version, for example v1.0.0"
+        required: true
+        default: "v1.0.0"
+        type: string
+      release_title:
+        description: "Title displayed on the GitHub Release"
+        required: true
+        default: "TCPIOneer Release"
+        type: string
+      release_notes:
+        description: "Write the release notes"
+        required: true
+        default: "TCPIOneer release. See the attached ZIP for source files."
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tcpioneer-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows-build-and-smoke:
     runs-on: windows-latest
+    timeout-minutes: 20
+
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
-          submodules: 'recursive'
+          submodules: false
+          fetch-depth: 0
+
+      - name: Restore submodules
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ".gitmodules")) {
+            Write-Host "No submodules file found."
+            exit 0
+          }
+
+          $entries = @(git config -f .gitmodules --get-regexp '^submodule\..*\.path$')
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "No submodule paths found."
+            exit 0
+          }
+
+          foreach ($entry in $entries) {
+            $parts = $entry -split '\s+', 2
+            $name = $parts[0] -replace '^submodule\.', '' -replace '\.path$', ''
+            $path = $parts[1]
+            $url = git config -f .gitmodules --get "submodule.$name.url"
+
+            if (-not $url) {
+              throw "No URL found for submodule $path"
+            }
+
+            if (Test-Path $path) {
+              Remove-Item $path -Recurse -Force
+            }
+
+            git clone --no-checkout $url $path
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not clone submodule $path"
+            }
+
+            $treeLine = git ls-tree HEAD -- "$path"
+            $sha = $null
+
+            if ($treeLine -match '^160000 commit ([0-9a-f]+)') {
+              $sha = $Matches[1]
+            }
+
+            $checkedOut = $false
+
+            if ($sha) {
+              git -C $path fetch --no-tags origin $sha 2>$null
+              if ($LASTEXITCODE -eq 0) {
+                git -C $path checkout --detach $sha
+                $checkedOut = ($LASTEXITCODE -eq 0)
+              }
+            }
+
+            if (-not $checkedOut) {
+              Write-Warning "Pinned commit unavailable for $path; trying the remote default branch."
+
+              $head = git -C $path ls-remote --symref origin HEAD
+              $branchLine = $head |
+                Where-Object { $_ -match '^ref: refs/heads/' } |
+                Select-Object -First 1
+
+              if (-not $branchLine) {
+                throw "Could not find the default branch for $path"
+              }
+
+              $branch = ($branchLine -split '\s+')[1] -replace '^refs/heads/', ''
+
+              git -C $path fetch --no-tags origin $branch
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not fetch submodule $path"
+              }
+
+              git -C $path checkout --detach FETCH_HEAD
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not check out submodule $path"
+              }
+            }
+          }
+
+      - name: Validate release information
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_TITLE: ${{ inputs.release_title }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          if ($env:RELEASE_VERSION -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$') {
+            throw "Version must look like v1.0.0 or v1.2.0-beta.1"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_TITLE)) {
+            throw "Release title cannot be empty."
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) {
+            throw "Release notes cannot be empty."
+          }
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Check required files
+        shell: pwsh
+        run: |
+          foreach ($file in @(
+            "package.json",
+            "package-lock.json",
+            "packages/cli/package.json"
+          )) {
+            if (-not (Test-Path $file)) {
+              throw "Required file is missing: $file"
+            }
+          }
 
       - name: Install dependencies
         run: npm ci
@@ -26,23 +164,41 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Check CLI build output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "packages/cli/dist/main.js")) {
+            throw "Build did not produce packages/cli/dist/main.js"
+          }
+
       - name: Smoke test the booted server
         shell: pwsh
         run: |
-          @{
-            server = @{ host = "127.0.0.1"; port = 3420 }
-            security = @{}
-          } | ConvertTo-Json -Depth 3 | Set-Content -Path ".\config.json" -Encoding utf8
-          $server = Start-Process -FilePath "node" -ArgumentList ".\packages\cli\dist\main.js" -WorkingDirectory $PWD -PassThru
+          $stdout = Join-Path $env:RUNNER_TEMP "tcpioneer-stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "tcpioneer-stderr.log"
+
+          $server = Start-Process -FilePath "node" `
+            -ArgumentList ".\packages\cli\dist\main.js" `
+            -WorkingDirectory $PWD `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr `
+            -PassThru
+
           try {
             $ready = $false
+
             for ($attempt = 0; $attempt -lt 30; $attempt++) {
               if ($server.HasExited) {
-                throw "TCPIOneer exited before becoming ready (exit code $($server.ExitCode))."
+                throw "TCPIOneer exited early with code $($server.ExitCode)."
               }
+
               try {
-                $response = Invoke-WebRequest -Uri "http://127.0.0.1:3420/helloworld" -TimeoutSec 2
-                if ($response.StatusCode -eq 200 -and $response.Content -eq "Hello, world!") {
+                $response = Invoke-WebRequest `
+                  -Uri "http://127.0.0.1:3420/helloworld" `
+                  -TimeoutSec 2
+
+                if ($response.StatusCode -eq 200 -and
+                    $response.Content.Trim() -eq "Hello, world!") {
                   $ready = $true
                   break
                 }
@@ -50,12 +206,152 @@ jobs:
                 Start-Sleep -Seconds 1
               }
             }
+
             if (-not $ready) {
-              throw "TCPIOneer did not respond successfully at http://127.0.0.1:3420/helloworld."
+              Write-Host "Server stdout:"
+              if (Test-Path $stdout) { Get-Content $stdout }
+
+              Write-Host "Server stderr:"
+              if (Test-Path $stderr) { Get-Content $stderr }
+
+              throw "Smoke test failed."
             }
+
+            Write-Host "Smoke test passed: /helloworld returned Hello, world!"
           } finally {
             if (-not $server.HasExited) {
-              Stop-Process -Id $server.Id
+              Stop-Process -Id $server.Id -Force
             }
-            Remove-Item -Path ".\config.json" -ErrorAction SilentlyContinue
           }
+
+      - name: Package source into ZIP
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          Add-Type -AssemblyName System.IO.Compression
+
+          $root = (Resolve-Path ".").Path
+          $zipName = "TCPIOneer-Release-$env:RELEASE_VERSION.zip"
+          $zipPath = Join-Path $root $zipName
+
+          if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
+          }
+
+          $excludedDirectories = @(
+            ".git",
+            ".idea",
+            ".github/workflows",
+            "guide"
+          )
+
+          $excludedFiles = @(
+            ".gitignore",
+            ".gitmodules",
+            $zipName
+          )
+
+          $stream = [System.IO.File]::Open(
+            $zipPath,
+            [System.IO.FileMode]::CreateNew
+          )
+
+          try {
+            $archive = [System.IO.Compression.ZipArchive]::new(
+              $stream,
+              [System.IO.Compression.ZipArchiveMode]::Create
+            )
+
+            try {
+              $files = Get-ChildItem -LiteralPath $root -File -Recurse -Force
+
+              foreach ($file in $files) {
+                $relative = [System.IO.Path]::GetRelativePath(
+                  $root, $file.FullName
+                ).Replace('\', '/')
+
+                $skip = $false
+
+                foreach ($directory in $excludedDirectories) {
+                  if ($relative -eq $directory -or
+                      $relative.StartsWith("$directory/")) {
+                    $skip = $true
+                    break
+                  }
+                }
+
+                if ($skip) { continue }
+
+                $segments = $relative.Split('/')
+                if ($segments -contains ".git") { continue }
+
+                if ($excludedFiles -contains $relative) { continue }
+
+                $entry = $archive.CreateEntry(
+                  $relative,
+                  [System.IO.Compression.CompressionLevel]::Optimal
+                )
+
+                $inputStream = [System.IO.File]::OpenRead($file.FullName)
+
+                try {
+                  $outputStream = $entry.Open()
+
+                  try {
+                    $inputStream.CopyTo($outputStream)
+                  } finally {
+                    $outputStream.Dispose()
+                  }
+                } finally {
+                  $inputStream.Dispose()
+                }
+              }
+            } finally {
+              $archive.Dispose()
+            }
+          } finally {
+            $stream.Dispose()
+          }
+
+          if (-not (Test-Path $zipPath)) {
+            throw "ZIP packaging failed."
+          }
+
+          if (-not (Test-Path (Join-Path $root "LICENSE"))) {
+            Write-Warning "LICENSE was not found at the repository root."
+          }
+
+          Write-Host "Created $zipName"
+          Get-Item $zipPath | Select-Object Name, Length
+
+      - name: Create GitHub Release and upload ZIP
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_TITLE: ${{ inputs.release_title }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          $zipName = "TCPIOneer-Release-$env:RELEASE_VERSION.zip"
+
+          if (-not (Test-Path $zipName)) {
+            throw "Release ZIP not found: $zipName"
+          }
+
+          $ghArgs = @(
+            "release", "create",
+            $env:RELEASE_VERSION,
+            $zipName,
+            "--title", $env:RELEASE_TITLE,
+            "--notes", $env:RELEASE_NOTES,
+            "--target", $env:GITHUB_SHA
+          )
+
+          if ($env:RELEASE_VERSION.Contains("-")) {
+            $ghArgs += "--prerelease"
+          }
+
+          gh @ghArgs
