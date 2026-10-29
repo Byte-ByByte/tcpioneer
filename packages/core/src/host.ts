@@ -317,11 +317,11 @@ export class Host {
         const screenshot = await captureScreenshot();
         res.writeHead(200, {
             "content-type": "image/jpeg",
-            "content-length": screenshot.length,
+            "content-length": screenshot.image.length,
             "cache-control": "no-store",
             "Access-Control-Allow-Origin": "*"
         });
-        res.end(screenshot);
+        res.end(screenshot.image);
     }
 
     private async handleDeleteSession(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
