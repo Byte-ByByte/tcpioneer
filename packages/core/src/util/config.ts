@@ -6,6 +6,7 @@ type HostConfig = {
         host: string,
         port: number,
         token: string,
+        tls?: { cert: string; key: string },
         guide: {
             location: string
         }

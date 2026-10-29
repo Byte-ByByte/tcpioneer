@@ -81,6 +81,10 @@ out
 # Nuxt.js build / generate output
 .nuxt
 dist
+release/
+/tcpioneer.exe
+/config.json
+/ersjaideStudioProjectstcpioneer
 .output
 
 # Gatsby files
