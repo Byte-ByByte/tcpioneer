@@ -1,13 +1,15 @@
 import readline from "node:readline"
-import HostConfig from "./util/config";
+import HostConfig from "./config";
 import { readFile, access, constants } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import  * as http from "node:http"
-import * as messages from "./util/messages"
-import * as path from "node:path"
-import { Logger, LogSeverity } from "./util/logger";
-import { captureScreenshot, DesktopInputError, DesktopUnsupportedError, performDesktopAction } from "./desktop";
-import { desktopPage, homePage } from "./ui";
+import * as messages from "./messages.js"
+import { Logger, LogSeverity } from "./logger";
+import { EndpointFamily } from "./endpoint";
+import globalEndpointArray from "./api";
+import { Session, SessionManager } from "./session";
+import { createHash } from 'node:crypto';
+import { Capability, CapabilityPermission, entriesToCapabilityPermissions } from "./capabilities";
 
 const aiApiDescription = {
     service: "TCPIOneer",
@@ -38,29 +40,37 @@ const aiApiDescription = {
     security: "Send the access token only in the Authorization bearer header, never in the URL."
 };
 
-type SessionEntry = {
-    createdAt: number;
-    expiresAt: number;
-};
-
 readline.emitKeypressEvents(process.stdin);
 
 if (process.stdin.isTTY) {
   process.stdin.setRawMode(true);
 }
 
-export * as messages from "./util/messages"
-export { default as HostConfig } from "./util/config";
-export * as logger from "./util/logger"
+export * as messages from "./messages.js"
+export { default as HostConfig } from "./config";
+export * as logger from "./logger"
 
 export class Host {
     logger: Logger;
     host: string;
     port: number;
-    private token: string;
-    private readonly sessions = new Map<string, SessionEntry>();
-    private readonly sessionTtlMs = 60 * 60 * 1000;
+
+    token: string;
+    tokenSHA256: Buffer<ArrayBuffer>;
+
+    endpointFamily: EndpointFamily<Host>;
+    readonly sessions: SessionManager;
+    newSessionCapabilities: CapabilityPermission[];
+
+    timeout: number;
+    expiryDays: number;
+    expiryHours: number;
+    expiryMinutes: number;
+    expirySeconds: number;
+    lockedUntil: Date | null;
+
     guideLocation: string;
+    
 
     constructor(config: HostConfig) {
         this.logger = config.logger
@@ -69,9 +79,31 @@ export class Host {
         this.token = config.server.token
         this.guideLocation = config.server.guide.location
         this.shortcutListener = this.shortcutListener.bind(this)
+        this.sessions = new SessionManager(config.server.session.timeout);
+        this.tokenSHA256 = createHash('sha256').update(this.token).digest();
+        this.newSessionCapabilities = config.server.session.capabilities;
+
+        this.endpointFamily = new EndpointFamily<Host>(this, globalEndpointArray);
+
+        this.timeout = config.server.session.timeout
+        this.expiryDays = config.server.session.expiryOffset.days
+        this.expiryHours = config.server.session.expiryOffset.hours
+        this.expiryMinutes = config.server.session.expiryOffset.minutes
+        this.expirySeconds = config.server.session.expiryOffset.seconds
+        this.lockedUntil = config.server.lockedUntil
     }
 
     private sessionsPermitted = true;
+
+    /** If the host is able to create a session.
+     * 
+     * @returns `true` if a new session can be created, otherwise `false`.
+     * 
+     * @Byte-ByByte
+     */
+    canCreateNewSession(): boolean {
+        return true; // Placeholder
+    }
 
     async start() {
         const browserHost = this.host === "0.0.0.0" || this.host === "::" ? "127.0.0.1" : this.host;
@@ -89,23 +121,7 @@ export class Host {
             process.stdin.on('keypress', this.shortcutListener);
         }
 
-        const server = http.createServer(async (req, res) => {
-            try {
-                await this.serverResponse(req, res);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                this.logger.error("HTTPServer", message);
-                if (!res.headersSent) {
-                    const status = error instanceof DesktopInputError || message === "invalid JSON body"
-                        ? 400
-                        : error instanceof DesktopUnsupportedError ? 501
-                        : message === "request body exceeds 1 MiB" ? 413 : 500;
-                    this.sendJson(res, status, { ok: false, error: status === 500 ? "request failed" : message });
-                } else {
-                    res.destroy();
-                }
-            }
-        });
+        const server = http.createServer(this.serverResponse);
 
         await new Promise<void>((resolve, reject) => {
             server.once('error', reject);
@@ -122,328 +138,21 @@ export class Host {
         const requestUrl = req.url ?? "/";
         const url = new URL(requestUrl, `http://${this.host}:${this.port}`);
 
-        this.logger.log(LogSeverity.Debug, "HTTPServer", `New request on url ${requestUrl}`)
-
-        if (req.method === "OPTIONS") {
-            this.sendJson(res, 204, null, {
-                "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                "Access-Control-Allow-Origin": "*"
-            });
-            return;
-        }
-
-        if (requestUrl === "/helloworld") {
-            res.writeHead(200, {
-                'content-type': 'text/plain',
-                'Access-Control-Allow-Origin': '*'
-            });
-            res.end('Hello, world!');
-            return;
-        }
-
-        if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/home" || url.pathname === "/desktop")) {
-            res.writeHead(200, {
-                "content-type": "text/html; charset=utf-8",
-                "cache-control": "no-store",
-                "x-content-type-options": "nosniff"
-            });
-            res.end(url.pathname === "/desktop" ? desktopPage : homePage);
-            return;
-        }
-
-        if (req.method === "GET" && url.pathname === "/ai") {
-            this.sendJson(res, 200, aiApiDescription, {
-                "cache-control": "no-store"
-            });
-            return;
-        }
-
-        if (requestUrl && this.checkForGuide(requestUrl)) {
-            const guideRoot = path.isAbsolute(this.guideLocation)
-                ? this.guideLocation
-                : path.resolve(process.cwd(), this.guideLocation);
-
-            const guidePath = requestUrl
-                .slice("/guide".length)
-                .replace(/^\/+/, "");
-
-            let resolvedTarget = path.resolve(guideRoot, guidePath || "index.md");
-
-            if (!(await this.checkFile(resolvedTarget))) {
-                if (await this.checkFile(`${resolvedTarget}.md`)) {
-                    resolvedTarget = `${resolvedTarget}.md`;
-                } else if (await this.checkFile(path.join(resolvedTarget, "index.md"))) {
-                    resolvedTarget = path.join(resolvedTarget, "index.md");
-                }
-            }
-
-            if (await this.checkFile(resolvedTarget)) {
-                res.writeHead(200, {
-                    "content-type": "text/markdown; charset=utf-8",
-                    "Access-Control-Allow-Origin": "*"
-                });
-
-                res.end(await this.readFileSafe(resolvedTarget));
+        this.endpointFamily.runMatchingEndpoint(req, res).catch((caught: unknown) => {
+            if (caught instanceof Error) {
+                this.logger.error("HTTPServer/EndpointHandler", caught.message);
+            } else if (typeof caught == "string") {
+                this.logger.error("HTTPServer/EndpointHandler", caught)
             } else {
-                res.writeHead(302, {
-                    "location": "https://github.com/Byte-ByByte/tcpioneer-guide/blob/e5563ef59509f3d37180ea3164c2a81bd0d3017e/index.md",
-                    "cache-control": "no-store"
-                });
-                res.end();
+                this.logger.error("HTTPServer/EndpointHandler", `An unexpected error occured, and its message could not be inferred. Raw: ${caught}`);
             }
 
-            return;
-        }
-
-        if (req.method === "POST" && url.pathname === "/api/v1/request-session") {
-            await this.handleRequestSession(req, res);
-            return;
-        }
-
-        if (req.method === "GET" && url.pathname === "/api/v1/auth-check") {
-            if (!this.hasValidBearerToken(req)) {
-                this.sendJson(res, 401, { ok: false, authenticated: false, error: "invalid or missing Authorization bearer token" }, {
-                    "cache-control": "no-store"
-                });
-                return;
+            // If we didn't send a response yet send one
+            if (!res.headersSent) {
+                res.writeHead(500)
+                res.end()
             }
-
-            this.sendJson(res, 200, { ok: true, authenticated: true }, {
-                "cache-control": "no-store"
-            });
-            return;
-        }
-
-        if (req.method === "POST" && url.pathname === "/api/v1/control") {
-            await this.handleControl(req, res);
-            return;
-        }
-
-        if (req.method === "POST" && url.pathname === "/api/v1/execute") {
-            this.sendJson(res, 410, {
-                ok: false,
-                error: "arbitrary command execution is disabled; use the desktop control API"
-            });
-            return;
-        }
-
-        if (req.method === "POST" && url.pathname === "/api/v1/screenshot") {
-            await this.handleScreenshot(req, res);
-            return;
-        }
-
-        if (req.method === "DELETE" && url.pathname === "/api/v1/session") {
-            await this.handleDeleteSession(req, res);
-            return;
-        }
-
-        if (req.method === "GET" && url.pathname === "/api/v1/session") {
-            await this.handleSessionInfo(req, res);
-            return;
-        }
-
-        res.writeHead(404, { 'content-type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ ok: false, error: 'not found' }));
-    }
-
-    private async handleRequestSession(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
-            return;
-        }
-
-        if (!this.sessionsPermitted) {
-            this.sendJson(res, 403, { ok: false, error: 'session creation is disabled by server operator' });
-            return;
-        }
-
-        const sessionId = randomUUID();
-        const now = Date.now();
-        this.sessions.set(sessionId, { createdAt: now, expiresAt: now + this.sessionTtlMs });
-
-        this.sendJson(res, 201, {
-            ok: true,
-            session: sessionId,
-            "session-key": sessionId,
-            createdAt: new Date(now).toISOString(),
-            created: new Date(now).toISOString(),
-            expiresAt: new Date(now + this.sessionTtlMs).toISOString(),
-            expiry: new Date(now + this.sessionTtlMs).toISOString(),
-            capabilities: ["mouse", "keyboard", "screenshot"],
-            usable: true
-        });
-    }
-
-    private async handleControl(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
-            return;
-        }
-
-        const body = await this.readJsonBody(req);
-        const payload = this.asObject(body);
-        const sessionKey = typeof payload?.session === 'string' ? payload.session : '';
-
-        if (!sessionKey || !payload) {
-            this.sendJson(res, 400, { ok: false, error: 'body must include a session and action' });
-            return;
-        }
-
-        const session = this.getSession(sessionKey);
-        if (!session) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or expired session' });
-            return;
-        }
-
-        await performDesktopAction(payload.action);
-        this.sendJson(res, 200, { ok: true, action: payload.action });
-    }
-
-    private async handleScreenshot(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
-            return;
-        }
-
-        const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
-        const body = this.asObject(await this.readJsonBody(req));
-        const sessionKey = (typeof body?.session === 'string' ? body.session : '') || (url.searchParams.get('session') ?? '');
-        if (!sessionKey || !this.getSession(sessionKey)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or expired session' });
-            return;
-        }
-
-        const screenshot = await captureScreenshot();
-        res.writeHead(200, {
-            "content-type": "image/jpeg",
-            "content-length": screenshot.image.length,
-            "cache-control": "no-store",
-            "Access-Control-Allow-Origin": "*"
-        });
-        res.end(screenshot.image);
-    }
-
-    private async handleDeleteSession(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
-            return;
-        }
-
-        const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
-        const body = this.asObject(await this.readJsonBody(req));
-        const sessionKey = (typeof body?.session === 'string' ? body.session : '') || (url.searchParams.get('session') ?? '');
-
-        if (!sessionKey) {
-            this.sendJson(res, 400, { ok: false, error: 'session is required' });
-            return;
-        }
-
-        const existed = this.sessions.has(sessionKey);
-        this.sessions.delete(sessionKey);
-
-        this.sendJson(res, 200, {
-            ok: true,
-            deleted: existed
-        });
-    }
-
-    private async handleSessionInfo(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }) {
-        if (!this.hasValidBearerToken(req)) {
-            this.sendJson(res, 401, { ok: false, error: 'invalid or missing Authorization bearer token' });
-            return;
-        }
-
-        const url = new URL(req.url ?? '/', `http://${this.host}:${this.port}`);
-        const sessionKey = url.searchParams.get('session') ?? '';
-
-        if (!sessionKey) {
-            this.sendJson(res, 400, { ok: false, error: 'session query parameter is required' });
-            return;
-        }
-
-        const session = this.getSession(sessionKey);
-        if (!session) {
-            this.sendJson(res, 404, { ok: false, error: 'session not found or expired' });
-            return;
-        }
-
-        this.sendJson(res, 200, {
-            ok: true,
-            session: sessionKey,
-            createdAt: new Date(session.createdAt).toISOString(),
-            expiresAt: new Date(session.expiresAt).toISOString(),
-            valid: true
-        });
-    }
-
-    private hasValidBearerToken(req: http.IncomingMessage): boolean {
-        const header = req.headers.authorization ?? '';
-        const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';
-        return token === this.token;
-    }
-
-    private getSession(sessionKey: string): SessionEntry | undefined {
-        const session = this.sessions.get(sessionKey);
-        if (!session) return undefined;
-
-        if (Date.now() > session.expiresAt) {
-            this.sessions.delete(sessionKey);
-            return undefined;
-        }
-
-        return session;
-    }
-
-    private async readJsonBody(req: http.IncomingMessage): Promise<unknown> {
-        return new Promise((resolve, reject) => {
-            const chunks: Buffer[] = [];
-            let size = 0;
-
-            req.on('data', (chunk) => {
-                const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-                size += buffer.length;
-                if (size > 1024 * 1024) {
-                    if (size - buffer.length <= 1024 * 1024) {
-                        reject(new Error("request body exceeds 1 MiB"));
-                    }
-                    return;
-                }
-                chunks.push(buffer);
-            });
-
-            req.on('end', () => {
-                const raw = Buffer.concat(chunks).toString('utf8').trim();
-                if (!raw) {
-                    resolve({});
-                    return;
-                }
-
-                try {
-                    resolve(JSON.parse(raw));
-                } catch {
-                    reject(new Error('invalid JSON body'));
-                }
-            });
-
-            req.on('error', (error) => reject(error));
-        });
-    }
-
-    private asObject(value: unknown): Record<string, unknown> | undefined {
-        if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-        return value as Record<string, unknown>;
-    }
-
-    private sendJson(res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }, status: number, payload: unknown, headers: Record<string, string> = {}) {
-        const responseHeaders = {
-            'content-type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            ...headers
-        };
-
-        res.writeHead(status, responseHeaders);
-        res.end(JSON.stringify(payload));
+        })
     }
 
     shortcutListener(_: string, key: readline.Key) {
@@ -489,7 +198,7 @@ export class Host {
         }
     }
 
-    async checkFile(path: string) {
+    async checkFile(path: string): Promise<boolean> {
         try {
             await access(path, constants.F_OK);
             return true;
