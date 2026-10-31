@@ -11,5 +11,5 @@
     "declaration": true,
     "emitDeclarationOnly": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "src/logger.ts", "src/messages.ts"]
 }
