@@ -1,3 +1,0 @@
-[submodule "packages/cli"]
-	path = packages/cli
-	url = https://github.com/Byte-ByByte/tcpioneer-cli.git
