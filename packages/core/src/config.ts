@@ -10,11 +10,7 @@ type HostConfig = {
         lockedUntil: Date | null
         session: {
             timeout: number
-<<<<<<< HEAD
             capabilities: CapabilityPermission[]
-=======
-            capabilities: string[]
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
             expiryOffset: {
                 days: number
                 hours: number
