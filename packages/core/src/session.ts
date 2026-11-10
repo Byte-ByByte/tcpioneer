@@ -1,5 +1,9 @@
 import { Origin } from "./api/util/types"
+<<<<<<< HEAD
 import { Capability, CapabilityPermission } from "./capabilities"
+=======
+import { Capability } from "./capabilities"
+>>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
 
 /** Represents a session and the capabilities granted to it. */
 export class Session {
@@ -10,7 +14,11 @@ export class Session {
     unusableUntil: Date | null
 
     /** Capabilities granted to this session. */
+<<<<<<< HEAD
     private readonly permissions: readonly CapabilityPermission[]
+=======
+    private readonly capabilities: readonly Capability[]
+>>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
 
     /** The date when this session was created. */
     readonly created: Date
@@ -28,15 +36,22 @@ export class Session {
      * @param [timeout=60000] How many milliseconds this session can be unused before the server deletes the session.
      * @param unusableUntil The date until the session is usable, or `null`.
      */
+<<<<<<< HEAD
     constructor(permissions: readonly CapabilityPermission[], expiry: Date, timeout: number = 60000, unusableUntil: Date | null = null) {
         this.key = crypto.randomUUID();
         this.permissions = [...permissions];
+=======
+    constructor(capabilities: readonly Capability[], expiry: Date, timeout: number = 60000, unusableUntil: Date | null = null) {
+        this.key = crypto.randomUUID();
+        this.capabilities = [...capabilities];
+>>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
         this.unusableUntil = unusableUntil;
         this.expiry = expiry;
         this.timeout = timeout;
         this.created = new Date();
     }
 
+<<<<<<< HEAD
     /** Checks whether this session has the specified capability, or task in a capability. */
     canUse(capability: Capability, task: number | null = null): boolean {
         for (const permission of this.permissions) {
@@ -44,6 +59,11 @@ export class Session {
         }
 
         return false;
+=======
+    /** Checks whether this session has the specified capability. */
+    canUse(capability: Capability) {
+        return this.capabilities.includes(capability);
+>>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
     }
 
     /** Returns whether this session is usable at the current time. */
@@ -274,11 +294,19 @@ export class SessionManager {
     }
 
     /** Returns whether the active session has the specified capability. */
+<<<<<<< HEAD
     canUse(key: `${string}-${string}-${string}-${string}-${string}`, capability: Capability, task: number): boolean {
         const session = this.getSession(key);
 
         if (session) {
             return session.canUse(capability, task);
+=======
+    canUse(key: `${string}-${string}-${string}-${string}-${string}`, capability: Capability): boolean {
+        const session = this.getSession(key);
+
+        if (session) {
+            return session.canUse(capability);
+>>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
         } else {
             return false;
         }
