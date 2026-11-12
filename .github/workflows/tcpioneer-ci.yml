@@ -177,8 +177,8 @@ jobs:
           $stdout = Join-Path $env:RUNNER_TEMP "tcpioneer-stdout.log"
           $stderr = Join-Path $env:RUNNER_TEMP "tcpioneer-stderr.log"
 
-          $server = Start-Process -FilePath "node" `
-            -ArgumentList ".\packages\cli\dist\main.js" `
+          $server = Start-Process -FilePath "npm" `
+            -ArgumentList "run start" `
             -WorkingDirectory $PWD `
             -RedirectStandardOutput $stdout `
             -RedirectStandardError $stderr `
