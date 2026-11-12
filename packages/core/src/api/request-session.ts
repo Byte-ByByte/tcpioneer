@@ -4,11 +4,7 @@ import { Host } from "../host";
 import * as commonErrors from "./util/commonErrors"
 import { Session } from "../session";
 import { SessionObject } from "./util/types";
-<<<<<<< HEAD
 import { capabilitiesToNames, capabilityToName } from "../capabilities";
-=======
-import { capabilitiesToNames } from "../capabilities";
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
 
 const endpointRequestSession = new Endpoint<Host>(
     (_, req) => {return req.url == "api/v1/request-session";},
@@ -44,7 +40,6 @@ const endpointRequestSession = new Endpoint<Host>(
 
                 const sessionIsUsable = session.isUsable();
 
-<<<<<<< HEAD
                 const capabilityPermissionObjects: {
                     capability: string
                     tasks: number[]
@@ -61,17 +56,11 @@ const endpointRequestSession = new Endpoint<Host>(
                     }
                 }
 
-=======
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
                 const sessionObject: SessionObject = {
                     session: session.key,
                     created: session.created.toISOString(),
                     expiry: session.expiry.toISOString(),
-<<<<<<< HEAD
                     capabilities: capabilityPermissionObjects,
-=======
-                    capabilities: capabilitiesToNames(host.newSessionCapabilities),
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
                     timeout: session.timeout,
                     usable: sessionIsUsable,
                     "unusable-until": (host.lockedUntil && !sessionIsUsable) ? host.lockedUntil.toISOString() : undefined

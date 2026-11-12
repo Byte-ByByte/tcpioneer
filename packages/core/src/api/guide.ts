@@ -23,13 +23,12 @@ const endpointGuide = new Endpoint<Host>(
 
             if (await host.checkFile(resolvedTarget)) {
                 const file = await host.readFileSafe(resolvedTarget);
-<<<<<<< HEAD
 
                 if (file) {
                     // Create an ETag for caching
 
-                    let digest: string = createHash('sha256').update(file).digest('hex');
-                    let etag: string = `"${digest}"`;
+                    const digest: string = createHash('sha256').update(file).digest('hex');
+                    const etag: string = `"${digest}"`;
 
                     // Check for headers; client might have a cached version
 
@@ -45,28 +44,6 @@ const endpointGuide = new Endpoint<Host>(
                         res.end(file);
                     }
                 }
-                
-=======
-                
-                // Create an ETag for caching
-
-                let digest: string = createHash('sha256').update(file).digest('hex');
-                let etag: string = `"${digest}"`;
-
-                // Check for headers; client might have a cached version
-
-                if (req.headers["if-none-match"] === etag) {
-                    res.writeHead(304, { "cache-control": "no-cache", "etag": etag });
-                    res.end();
-                } else {
-                    res.writeHead(200, {
-                        "content-type": "text/markdown; charset=utf-8",
-                        "cache-control": "no-cache",
-                        "etag": etag
-                    });
-                    res.end(file);
-                }
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
             } else {
                 res.writeHead(404);
                 res.end("404 Not Found");

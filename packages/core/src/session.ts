@@ -1,9 +1,5 @@
 import { Origin } from "./api/util/types"
-<<<<<<< HEAD
 import { Capability, CapabilityPermission } from "./capabilities"
-=======
-import { Capability } from "./capabilities"
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
 
 /** Represents a session and the capabilities granted to it. */
 export class Session {
@@ -14,11 +10,7 @@ export class Session {
     unusableUntil: Date | null
 
     /** Capabilities granted to this session. */
-<<<<<<< HEAD
     private readonly permissions: readonly CapabilityPermission[]
-=======
-    private readonly capabilities: readonly Capability[]
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
 
     /** The date when this session was created. */
     readonly created: Date
@@ -32,38 +24,28 @@ export class Session {
     /**
      * Creates a session.
      * @param capabilities Capabilities granted to the session.
-     * @param expiry The date this session will expire at. 
+     * @param expiry The date this session will expire at.
      * @param [timeout=60000] How many milliseconds this session can be unused before the server deletes the session.
      * @param unusableUntil The date until the session is usable, or `null`.
      */
-<<<<<<< HEAD
     constructor(permissions: readonly CapabilityPermission[], expiry: Date, timeout: number = 60000, unusableUntil: Date | null = null) {
         this.key = crypto.randomUUID();
         this.permissions = [...permissions];
-=======
-    constructor(capabilities: readonly Capability[], expiry: Date, timeout: number = 60000, unusableUntil: Date | null = null) {
-        this.key = crypto.randomUUID();
-        this.capabilities = [...capabilities];
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
         this.unusableUntil = unusableUntil;
         this.expiry = expiry;
         this.timeout = timeout;
         this.created = new Date();
     }
 
-<<<<<<< HEAD
     /** Checks whether this session has the specified capability, or task in a capability. */
     canUse(capability: Capability, task: number | null = null): boolean {
         for (const permission of this.permissions) {
-            if (permission.capability == capability && task ? permission.tasks.includes(task) : true) return true;
+            if (permission.capability === capability && (task === null || permission.tasks.includes(task))) {
+                return true;
+            }
         }
 
         return false;
-=======
-    /** Checks whether this session has the specified capability. */
-    canUse(capability: Capability) {
-        return this.capabilities.includes(capability);
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
     }
 
     /** Returns whether this session is usable at the current time. */
@@ -125,37 +107,32 @@ export class SessionManager {
 
     private _createSessionTimeout(session: Session) {
         const timerid = crypto.randomUUID();
-        
+
         const timeout: SessionTimeout = {
             timeout: setTimeout(this._createTimeoutCallback(session.key, timerid), session.timeout),
             timerid: timerid
-        }
+        };
 
         this.sessionTimeoutCallbacks.set(session.key, timeout);
     }
 
     private _createTimeoutCallback(key: `${string}-${string}-${string}-${string}-${string}`, timerid: string): () => void {
-
         return () => {
             const timeout = this.sessionTimeoutCallbacks.get(key);
 
-            if (!timeout || timeout.timerid != timerid) return;
+            if (!timeout || timeout.timerid !== timerid) return;
 
             this.update();
 
             this.deleteSession(key, "timeout");
             this.sessionTimeoutCallbacks.delete(key);
-        }
+        };
     }
 
     private _updatelessDeleteSession(key: `${string}-${string}-${string}-${string}-${string}`, reason: string, origin: Origin = Origin.server, useTombstone: boolean = true): Session | undefined {
-        const session = this.sessions.get(key); // Get session before we delete it
-        
-        // Check if we have that session
-        if (session) {
-            // We do, start deletion
+        const session = this.sessions.get(key);
 
-            // Remove the timeout
+        if (session) {
             const timeout = this.sessionTimeoutCallbacks.get(key);
 
             if (timeout) {
@@ -164,18 +141,13 @@ export class SessionManager {
             }
 
             if (!useTombstone) {
-                // Don't use the tombstone
                 if (this.sessions.delete(key)) {
                     return session;
-                } else {
-                    // We didn't find a session; no session to give back to the user
-                    return undefined;
                 }
+
+                return undefined;
             }
 
-            // Set up tombstone system
-
-            // Remove the session from the session list
             this.sessions.delete(key);
 
             const tombstone = {
@@ -186,14 +158,13 @@ export class SessionManager {
                 reason: reason
             };
 
-            this.deletedSessions.set(key, tombstone); // Put it into the deleted sessions list
+            this.deletedSessions.set(key, tombstone);
 
             this.tombstoneCallbacks.set(key, setTimeout(() => {
                 this.deletedSessions.delete(key);
                 this.tombstoneCallbacks.delete(key);
-            }, this.tombstoneTimeout)) // Remove it after timeout
+            }, this.tombstoneTimeout));
         } else {
-            // We didn't find a session; no session to give back to the user
             return undefined;
         }
 
@@ -203,7 +174,7 @@ export class SessionManager {
     /** Returns the active session with the specified key, if one exists. */
     getSession(key: `${string}-${string}-${string}-${string}-${string}`): Session | undefined {
         this.update();
-        
+
         return this.sessions.get(key);
     }
 
@@ -214,10 +185,8 @@ export class SessionManager {
         if (this.sessions.has(session.key)) {
             throw new Error("Session is already registered.");
         }
-        
-        this.sessions.set(session.key, session);
 
-        // Create a timeout callback for the session
+        this.sessions.set(session.key, session);
         this._createSessionTimeout(session);
     }
 
@@ -229,37 +198,25 @@ export class SessionManager {
      */
     deleteSession(key: `${string}-${string}-${string}-${string}-${string}`, reason: string, origin: Origin = Origin.server, useTombstone: boolean = true): Session | undefined {
         this.update();
-        
+
         return this._updatelessDeleteSession(key, reason, origin, useTombstone);
     }
 
     /** Returns whether the specified key belongs to a retained tombstone. */
     isSessionDeleted(key: `${string}-${string}-${string}-${string}-${string}`): boolean {
         this.update();
-        
-        const tombstone = this.deletedSessions.get(key);
 
-        if (tombstone) {
-            return true;
-        } else {
-            return false;
-        }
+        return this.deletedSessions.has(key);
     }
 
-    /** 
+    /**
      * Returns a retained tombstone if the specified key belongs to one.
      * @returns `SessionTombstone` if a tombstone was found; otherwise, `undefined`
      */
     getTombstone(key: `${string}-${string}-${string}-${string}-${string}`): SessionTombstone | undefined {
         this.update();
-        
-        const tombstone = this.deletedSessions.get(key);
 
-        if (tombstone) {
-            return tombstone;
-        } else {
-            return undefined;
-        }
+        return this.deletedSessions.get(key);
     }
 
     /**
@@ -268,7 +225,7 @@ export class SessionManager {
      */
     markTombstoneRead(key: `${string}-${string}-${string}-${string}-${string}`): boolean {
         this.update();
-        
+
         const tombstoneCallback = this.tombstoneCallbacks.get(key);
 
         if (tombstoneCallback) {
@@ -288,51 +245,42 @@ export class SessionManager {
 
         if (session) {
             return session.isUsable();
-        } else {
-            return false;
         }
+
+        return false;
     }
 
     /** Returns whether the active session has the specified capability. */
-<<<<<<< HEAD
-    canUse(key: `${string}-${string}-${string}-${string}-${string}`, capability: Capability, task: number): boolean {
+    canUse(key: `${string}-${string}-${string}-${string}-${string}`, capability: Capability, task: number | null = null): boolean {
         const session = this.getSession(key);
 
         if (session) {
             return session.canUse(capability, task);
-=======
-    canUse(key: `${string}-${string}-${string}-${string}-${string}`, capability: Capability): boolean {
-        const session = this.getSession(key);
-
-        if (session) {
-            return session.canUse(capability);
->>>>>>> parent of 2200512 (Replace main contents with GPT-IO rebuild)
-        } else {
-            return false;
         }
+
+        return false;
     }
 
     /** Marks that a session has been used, resetting its timeout. */
     markSessionUse(key: `${string}-${string}-${string}-${string}-${string}`) {
         this.update();
-        
+
         const timeout = this.sessionTimeoutCallbacks.get(key);
         const session = this.sessions.get(key);
 
         if (timeout && session) {
-            clearTimeout(timeout.timeout)
+            clearTimeout(timeout.timeout);
             this._createSessionTimeout(session);
         }
     }
 
-    /** 
+    /**
      * Updates the session manager so that session information is up-to-date.
      * **This should be run before any operation regarding the `SessionManager`!**
-     * 
+     *
      * **NOTE:** This function does not need to be used externally; it is run before any operation nonetheless.
      */
     update() {
-        // Check for expired sessions
         this.sessions.forEach((session) => {
             if (Date.now() >= session.expiry.getTime()) {
                 this._updatelessDeleteSession(session.key, "expired");

@@ -9,7 +9,7 @@
     "build:exe": "npm run build && pkg -t node24-win-x64 -o dist/tcpioneer.exe packages/cli/dist/main.js",
     "build:icon": "node scripts/build-icon.cjs",
     "build:installer": "npm run build:exe && npm run build:icon && electron-builder --win nsis",
-    "start": "npm run build && npm --workspace @tcpioneer/cli start",
+    "start": "npm run build && node ./packages/cli/dist/main.js",
     "test": "npm run build"
   },
   "keywords": [
@@ -66,11 +66,12 @@
     }
   },
   "allowScripts": {
-    "esbuild@0.27.2": true
+    "esbuild@0.28.2": true
   },
   "devDependencies": {
-    "@yao-pkg/pkg": "^6.24.0",
-    "electron": "^45.1.0",
-    "electron-builder": "^26.18.0"
+    "@yao-pkg/pkg": "^6.24.0"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.52"
   }
 }

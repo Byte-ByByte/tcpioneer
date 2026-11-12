@@ -18,6 +18,16 @@
             "emergency": true
         }
     },
+    "session": {
+        "timeout": 300,
+        "capabilities": [
+            {
+                "capability": "keyboard",
+                "tasks": [0, 1, 2]
+            }
+        ],
+        "expiryOffset": {}
+    },
     "guide": {
         "location": "./guide"
     }

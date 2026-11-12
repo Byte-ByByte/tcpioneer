@@ -9,72 +9,81 @@ export interface Logger {
      * @param severity The severity level for the message.
      * @param source The component or subsystem that generated the log.
      * @param message The message content to record.
+     * @param hint An optional hint message to display alongside the log.
      */
-    log(severity: LogSeverity, source: string, message: string): void
+    log(severity: LogSeverity, source: string, message: string, hint?: string): void
 
     /**
      * Logs a debug-level message.
      *
      * @param source The component or subsystem that generated the log.
      * @param message The message content to record.
+     * @param hint An optional hint message to display alongside the log.
      */
-    debug(source: string, message: string): void
+    debug(source: string, message: string, hint?: string): void
 
     /**
      * Logs an informational message.
      *
      * @param source The component or subsystem that generated the log.
      * @param message The message content to record.
+     * @param hint An optional hint message to display alongside the log.
      */
-    info(source: string, message: string): void
+    info(source: string, message: string, hint?: string): void
 
     /**
      * Logs a normal but noteworthy event.
      *
      * @param source The component or subsystem that generated the log.
      * @param message The message content to record.
+     * @param hint An optional hint message to display alongside the log.
      */
-    notice(source: string, message: string): void
+    notice(source: string, message: string, hint?: string): void
 
     /**
      * Logs a warning that may require attention.
      *
      * @param source The component or subsystem that generated the log.
      * @param message The message content to record.
+     * @param hint An optional hint message to display alongside the log.
      */
-    warn(source: string, message: string): void
+    warn(source: string, message: string, hint?: string): void
 
     /**
      * Logs an error that indicates a failure occurred.
      *
      * @param source The component or subsystem that generated the log.
      * @param message The message content to record.
+     * @param hint An optional hint message to display alongside the log.
      */
-    error(source: string, message: string): void
+    error(source: string, message: string, hint?: string): void
 
     /**
      * Logs a critical error that may affect core functionality.
      *
      * @param source The component or subsystem that generated the log.
      * @param message The message content to record.
+     * @param hint An optional hint message to display alongside the log.
      */
-    critical(source: string, message: string): void
+    critical(source: string, message: string, hint?: string): void
 
     /**
      * Logs an alert-level condition that requires immediate action.
      *
      * @param source The component or subsystem that generated the log.
      * @param message The message content to record.
+     * @param hint An optional hint message to display alongside the log.
      */
-    alert(source: string, message: string): void
+    alert(source: string, message: string, hint?: string): void
 
     /**
      * Logs an emergency-level condition.
      *
      * @param source The component or subsystem that generated the log.
      * @param message The message content to record.
+     * @param hint An optional hint message to display alongside the log.
      */
-    emergency(source: string, message: string): void
+    emergency(source: string, message: string, hint?: string): void
 
 }
 
