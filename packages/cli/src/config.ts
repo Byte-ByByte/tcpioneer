@@ -8,7 +8,8 @@ const ConfigFileRef = Type.Object({
         noSessionsBefore: Type.Optional(Type.String())
     }),
     security: Type.Object({
-        token: Type.String()
+        token: Type.String(),
+        generateToken: Type.Optional(Type.Boolean())
     }),
     "log-options": Type.Object({
         "shown-severities": Type.Object({

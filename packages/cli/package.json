@@ -27,6 +27,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@tcpioneer/core": "*"
+    "@tcpioneer/core": "*",
+    "commander": "^4.1.1"
   }
 }
