@@ -7,8 +7,9 @@ import { SessionObject } from "./util/types";
 import { capabilitiesToNames, capabilityToName } from "../capabilities";
 
 const endpointRequestSession = new Endpoint<Host>(
-    (_, req) => {return req.url == "api/v1/request-session";},
+    (_, req) => {return req.url == "/api/v1/request-session";},
     (host, req, res) => {
+
         if (req.headers.authorization) {
             const splitAuth = req.headers.authorization.split(' ')
 
@@ -23,9 +24,11 @@ const endpointRequestSession = new Endpoint<Host>(
             
             if (!nodeCrypto.timingSafeEqual(host.tokenSHA256, hashBuffer)) {
                 commonErrors.unauthorized(res);
+                host.logger.debug("endpoints/request-session", "Session creation denied; unauthorized");
                 return;
             }
             if (host.canCreateNewSession()) {
+                host.logger.info("endpoints/request-session", "New session created");
 
                 const expiryDuration =
                     (((host.expiryDays * 24 + host.expiryHours) * 60
@@ -76,6 +79,7 @@ const endpointRequestSession = new Endpoint<Host>(
             }
         } else {
             commonErrors.unauthorized(res);
+            host.logger.debug("endpoints/request-session", "Session creation denied; unauthorized");
         }
     }
 )

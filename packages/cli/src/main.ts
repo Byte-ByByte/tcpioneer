@@ -8,6 +8,7 @@ import { Value } from '@sinclair/typebox/value'
 import * as crypto from 'node:crypto'
 import { Command } from "commander";
 import { Option, options } from "./options";
+import chalk from "chalk";
 
 type ConfigFile = Static<typeof ConfigFileRef>
 
@@ -38,21 +39,41 @@ export class CLI {
             this.config = input[0];
             this.configCandidate = input[1];
         }
+
+        cli.program
+            .option('-s, --start', chalk.green('start the server regardless of any other options'))
+            .option('--rotate', chalk.green('rotate token using cryptographically safe random values'))
+            .option('-ns, --no-start', chalk.green('do not start the server regardless of any other options'));
     }
 
     async start() {
+        await this.configLogic();
+
         const opts = this.program.opts();
 
+        let earlyExit = false;
+        let lockEarlyExit = false;
+
         for (const option of options) {
-            if (option(opts, this)) process.exit(0);
+            if (!lockEarlyExit) {
+                [earlyExit, lockEarlyExit] = await Promise.resolve(option(opts, this, earlyExit, lockEarlyExit));
+            } else {
+                lockEarlyExit = (await Promise.resolve(option(opts, this, earlyExit, lockEarlyExit)))[1];
+            }
         }
 
-        await this.configLogic();
+        if (earlyExit) process.exit(0);
 
         if (!this.config) {
             this.logger.emergency("prehost", "TCPIOneer has loaded without a config has tried to start.", "This message should be impossible under normal use. Please inform us with a GitHub issue, and include the entire log.");
             process.exit(1);
         }
+
+        if (this.config.security.generateToken) {
+            // Generate a new token
+            this.generateToken(this.config);
+        }
+
         await this.startHost(this.config);
     }
 
@@ -61,7 +82,7 @@ export class CLI {
         const randomArray = new Uint8Array(255);
         crypto.getRandomValues(randomArray);
 
-        const token: string = crypto.createHash('sha256').digest('base64'); // Digest into base64 for JSON storage
+        const token: string = crypto.createHash('sha256').update(randomArray).digest('base64'); // Digest into base64 for JSON storage
 
         config.security.token = token; // Update config file
 
@@ -76,7 +97,7 @@ export class CLI {
     private async writeConfig() {
         try {
             if (this.configCandidate && this.config) {
-                await writeFile(this.configCandidate, JSON.stringify(this.config));
+                await writeFile(this.configCandidate, JSON.stringify(this.config, null, 2));
                 this.logger.info("cli/config", "Config saved");
             } else {
                 this.logger.warn("cli/config", "TCPIOneer has loaded without a config and has tried to write to it. No data has been overwritten.", "This message should be impossible under normal use. Please inform us with a GitHub issue, and include the entire log.");
@@ -197,12 +218,10 @@ cli.program.name("TCPIOneer")
     .description('A remote-desktop host that can be accessible through an HTTP API')
     .version('core 1.1.0 cli 0.0.1');
 
-cli.program
-    .option('--rotate', 'Rotate token');
-
-cli.program.parse(process.argv);
-
 (async () => {
     await cli.init();
+
+    cli.program.parse(process.argv);
+
     await cli.start();
 })()

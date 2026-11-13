@@ -9,7 +9,7 @@
     "build:exe": "npm run build && pkg -t node24-win-x64 -o dist/tcpioneer.exe packages/cli/dist/main.js",
     "build:icon": "node scripts/build-icon.cjs",
     "build:installer": "npm run build:exe && npm run build:icon && electron-builder --win nsis",
-    "start": "npm run build && node ./packages/cli/dist/main.js",
+    "start": "node ./packages/cli/dist/main.js",
     "test": "npm run build"
   },
   "keywords": [

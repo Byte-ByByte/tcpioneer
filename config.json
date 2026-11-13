@@ -1,35 +1,40 @@
 {
-    "configVersion": 1,
-    "server": {
-        "host": "127.0.0.1",
-        "port": 3420
-    },
-    "security": {
-        "token": "generate-on-first-launch"
-    },
-    "log-options": {
-        "shown-severities": {
-            "debug": true,
-            "info": true,
-            "notice": true,
-            "warn": true,
-            "error": true,
-            "critical": true,
-            "alert": true,
-            "emergency": true
-        }
-    },
-    "session": {
-        "timeout": 300,
-        "capabilities": [
-            {
-                "capability": "keyboard",
-                "tasks": [0, 1, 2]
-            }
-        ],
-        "expiryOffset": {}
-    },
-    "guide": {
-        "location": "./guide"
+  "configVersion": 1,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 3420
+  },
+  "security": {
+    "token": "kHuiNVsNeVdQp5cF3fuFvMat+LjHa0IOmoNbd/GN/oQ=",
+    "generateToken": false
+  },
+  "log-options": {
+    "shown-severities": {
+      "debug": true,
+      "info": true,
+      "notice": true,
+      "warn": true,
+      "error": true,
+      "critical": true,
+      "alert": true,
+      "emergency": true
     }
+  },
+  "session": {
+    "timeout": 300,
+    "capabilities": [
+      {
+        "capability": "keyboard",
+        "tasks": [
+          0,
+          1,
+          2
+        ]
+      }
+    ],
+    "expiryOffset": {}
+  },
+  "guide": {
+    "location": "./guide"
+  }
 }

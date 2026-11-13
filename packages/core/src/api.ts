@@ -2,7 +2,8 @@
 
 import endpointHelloWorld from "./api/helloworld"
 import endpointGuide from "./api/guide"
+import endpointRequestSession from "./api/request-session"
 
-const globalEndpointArray = [endpointGuide, endpointHelloWorld]
+const globalEndpointArray = [endpointGuide, endpointHelloWorld, endpointRequestSession];
 
 export default globalEndpointArray
