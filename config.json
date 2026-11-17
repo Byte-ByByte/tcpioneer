@@ -5,8 +5,8 @@
     "port": 3420
   },
   "security": {
-    "token": "kHuiNVsNeVdQp5cF3fuFvMat+LjHa0IOmoNbd/GN/oQ=",
-    "generateToken": false
+    "token": "",
+    "generateToken": true
   },
   "log-options": {
     "shown-severities": {
