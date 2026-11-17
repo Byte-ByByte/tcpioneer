@@ -1,0 +1,1 @@
+export const maxRequestLength = 64 * 1024;

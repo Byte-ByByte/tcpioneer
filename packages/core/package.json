@@ -27,6 +27,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "chalk": "^6.0.1"
+    "chalk": "^6.0.1",
+    "robotjs": "^0.9.1"
   }
 }

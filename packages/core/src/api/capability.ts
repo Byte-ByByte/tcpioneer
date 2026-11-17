@@ -1,4 +1,3 @@
-import * as nodeCrypto from "node:crypto";
 import Endpoint from "../endpoint";
 import { Host } from "../host";
 import * as commonErrors from "./util/commonErrors"
@@ -7,9 +6,8 @@ import { nameToCapability } from "../capabilities";
 import { capabilityHandlers } from "../capabilityHandler";
 import { Static, Type } from '@sinclair/typebox'
 import { Value } from '@sinclair/typebox/value'
-import * as http from "node:http";
-
-const MAX_CAPABILITY_REQUEST_BODY_BYTES = 64 * 1024;
+import { maxRequestLength } from "./util/constants";
+import { authorizationCheck, AuthStatus } from "./util/authCheck";
 
 const CapabilityRequestRef = Type.Object({
     "capability-name": Type.String({ minLength: 1 }),
@@ -18,45 +16,27 @@ const CapabilityRequestRef = Type.Object({
     "session": Type.String({ format: 'uuid' })
 })
 
-type CapabilityRequestType = Static<typeof CapabilityRequestRef> & {"session": `${string}-${string}-${string}-${string}-${string}`};
+type CapabilityRequest = Static<typeof CapabilityRequestRef> & {"session": `${string}-${string}-${string}-${string}-${string}`};
 
-const endpointCapability = new Endpoint<Host>(
+export const endpointCapability = new Endpoint<Host>(
     (_, req) => {return req.url == "/api/v1/capability";},
     (host, req, res) => {
+        if (req.method != "POST") {
+            host.logger.debug("endpoints/capability", "Capability operation denied; incorrect method");
+            res.writeHead(405, {
+                allow: "POST"
+            });
+            res.end();
 
-        const authorization = req.headers.authorization;
-        if (typeof authorization === "string") {
-            const authParts = authorization.trim().split(/\s+/);
-            const scheme = authParts[0];
-            const token = authParts[1];
+            return;
+        }
 
-            if (scheme !== "Bearer" || !token || authParts.length !== 2) {
-                commonErrors.unauthorized(res);
-                return;
-            }
-
-            const hashBuffer: Buffer<ArrayBuffer> = nodeCrypto.createHash('sha256').update(token).digest();
-            
-            if (!nodeCrypto.timingSafeEqual(host.tokenSHA256, hashBuffer)) {
-                commonErrors.unauthorized(res);
-                host.logger.debug("endpoints/capability", "Capability operation denied; unauthorized");
-                return;
-            }
-            
-            if (req.method != "POST") {
-                host.logger.debug("endpoints/capability", "Capability operation denied; incorrect method");
-                res.writeHead(405, {
-                    allow: "POST"
-                });
-                res.end();
-
-                return;
-            }
-
+        const authStatus = authorizationCheck(req.headers.authorization, host.tokenSHA256);
+        if (authStatus === AuthStatus.OK) {
             const contentLengthHeader = req.headers["content-length"];
             const contentLength = typeof contentLengthHeader === "string" ? Number(contentLengthHeader) : Array.isArray(contentLengthHeader) ? Number(contentLengthHeader[0]) : NaN;
 
-            if (!Number.isNaN(contentLength) && contentLength > MAX_CAPABILITY_REQUEST_BODY_BYTES) {
+            if (!Number.isNaN(contentLength) && contentLength > maxRequestLength) {
                 res.writeHead(413, { "Content-Type": "application/json" });
                 const error: ErrorObject = {
                     code: "REQUEST_TOO_LARGE",
@@ -79,7 +59,7 @@ const endpointCapability = new Endpoint<Host>(
                 const nextChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
                 bodyLength += nextChunk.length;
 
-                if (bodyLength > MAX_CAPABILITY_REQUEST_BODY_BYTES) {
+                if (bodyLength > maxRequestLength) {
                     bodyRejected = true;
                     res.writeHead(413, { "Content-Type": "application/json" });
                     const error: ErrorObject = {
@@ -122,7 +102,7 @@ const endpointCapability = new Endpoint<Host>(
                     return;
                 }
 
-                const validatedData = parsedData as CapabilityRequestType;
+                const validatedData = parsedData as CapabilityRequest;
 
                 const capability = nameToCapability.get(validatedData["capability-name"]);
                 
@@ -136,7 +116,7 @@ const endpointCapability = new Endpoint<Host>(
 
                                 if (capabilityHandler) {
                                     Promise.resolve(
-                                        capabilityHandler(validatedData.params, req, res)
+                                        capabilityHandler(validatedData.params, validatedData.task, host, req, res)
                                     ).catch(error => {
                                         host.logger.error("endpoints/capability", "Capability handler failed", error);
                                     });
@@ -185,11 +165,14 @@ const endpointCapability = new Endpoint<Host>(
 
                             const tombstone = host.sessions.getTombstone(validatedData.session);
 
+                            // It's okay to have a possibility that tombstone is undefined because `isSessionDeleted` inherently means the tombstone exists
                             const error: ErrorObject = {
                                 code: "SESSION_DELETED",
                                 message: "The session has been deleted.",
                                 source: (tombstone?.deletionOrigin == Origin.client) ? 'client' : 'server',
-                                "extra-info": {}
+                                "extra-info": {
+                                    reason: tombstone?.reason // If reason is undefined JSON.stringify won't include it which is perfectly fine
+                                }
                             }
 
                             res.end(JSON.stringify(error));
@@ -225,7 +208,13 @@ const endpointCapability = new Endpoint<Host>(
 
         } else {
             commonErrors.unauthorized(res);
-            host.logger.debug("endpoints/capability", "Capability operation denied; unauthorized");
+            if (authStatus === AuthStatus.InvalidFormatting) {
+                host.logger.debug("endpoints/capability", "Capability operation denied; invalid formatting");
+            } else if (authStatus === AuthStatus.Incorrect) {
+                host.logger.debug("endpoints/capability", "Capability operation denied; unauthorized");
+            } else if (authStatus === AuthStatus.Absent) {
+                host.logger.debug("endpoints/capability", "Capability operation denied; absent");
+            }
         }
     }
 )

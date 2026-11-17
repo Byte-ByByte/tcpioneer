@@ -1,32 +1,26 @@
-import * as nodeCrypto from "node:crypto";
 import Endpoint from "../endpoint";
 import { Host } from "../host";
 import * as commonErrors from "./util/commonErrors"
 import { Session } from "../session";
 import { SessionObject } from "./util/types";
-import { capabilitiesToNames, capabilityToName } from "../capabilities";
+import { capabilityToName } from "../capabilities";
+import { authorizationCheck, AuthStatus } from "./util/authCheck";
 
 const endpointRequestSession = new Endpoint<Host>(
     (_, req) => {return req.url == "/api/v1/request-session";},
     (host, req, res) => {
+        if (req.method != "GET") {
+            host.logger.debug("endpoints/capability", "Capability operation denied; incorrect method");
+            res.writeHead(405, {
+                allow: "GET"
+            });
+            res.end();
 
-        if (req.headers.authorization) {
-            const splitAuth = req.headers.authorization.split(' ')
+            return;
+        }
 
-            const scheme = splitAuth[0];
-            const token = splitAuth[1];
-            if (!token || scheme != "Bearer") {
-                commonErrors.unauthorized(res);
-                return;
-            }
-
-            const hashBuffer: Buffer<ArrayBuffer> = nodeCrypto.createHash('sha256').update(token).digest();
-            
-            if (!nodeCrypto.timingSafeEqual(host.tokenSHA256, hashBuffer)) {
-                commonErrors.unauthorized(res);
-                host.logger.debug("endpoints/request-session", "Session creation denied; unauthorized");
-                return;
-            }
+        const authStatus = authorizationCheck(req.headers.authorization || undefined, host.tokenSHA256);
+        if (authStatus === AuthStatus.OK) {
             if (host.canCreateNewSession()) {
                 host.logger.info("endpoints/request-session", "New session created");
 
@@ -79,7 +73,11 @@ const endpointRequestSession = new Endpoint<Host>(
             }
         } else {
             commonErrors.unauthorized(res);
-            host.logger.debug("endpoints/request-session", "Session creation denied; unauthorized");
+            if (authStatus !== AuthStatus.InvalidFormatting) {
+                host.logger.debug("endpoints/request-session", "Session creation denied; unauthorized");
+            } else {
+                host.logger.debug("endpoints/request-session", "Capability operation denied; invalid formatting");
+            }
         }
     }
 )

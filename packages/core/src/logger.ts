@@ -131,3 +131,26 @@ export enum LogSeverity {
      */
     Emergency = 7
 }
+
+/**
+ * A no-op implementation of Logger.
+ */
+export class NOPLogger implements Logger {
+    log(severity: LogSeverity, source: string, message: string, hint?: string) {}
+
+    debug(source: string, message: string, hint?: string) {}
+
+    info(source: string, message: string, hint?: string) {}
+
+    notice(source: string, message: string, hint?: string) {}
+
+    warn(source: string, message: string, hint?: string) {}
+
+    error(source: string, message: string, hint?: string) {}
+
+    critical(source: string, message: string, hint?: string) {}
+
+    alert(source: string, message: string, hint?: string) {}
+
+    emergency(source: string, message: string, hint?: string) {}
+}
