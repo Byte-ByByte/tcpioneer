@@ -8,6 +8,11 @@ import { Static, Type } from '@sinclair/typebox'
 import { Value } from '@sinclair/typebox/value'
 import { maxRequestLength } from "./util/constants";
 import { authorizationCheck, AuthStatus } from "./util/authCheck";
+import { FormatRegistry } from "@sinclair/typebox";
+
+FormatRegistry.Set("uuid", (value) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+);
 
 const CapabilityRequestRef = Type.Object({
     "capability-name": Type.String({ minLength: 1 }),
@@ -94,6 +99,18 @@ export const endpointCapability = new Endpoint<Host>(
                 }
 
                 if (!Value.Check(CapabilityRequestRef, parsedData)) {
+                    const errors = [...Value.Errors(CapabilityRequestRef, parsedData)];
+                    
+                    if (errors.length > 0) {
+                        host.logger.debug(
+                            "endpoints/capability",
+                            JSON.stringify(errors.map(e => ({
+                                path: e.path,
+                                message: e.message
+                            })))
+                        );
+                    }
+                    
                     res.writeHead(400);
                     res.end();
 
@@ -106,7 +123,7 @@ export const endpointCapability = new Endpoint<Host>(
 
                 const capability = nameToCapability.get(validatedData["capability-name"]);
                 
-                if (capability) {
+                if (capability !== undefined) {
                     if (host.sessions.getSession(validatedData.session)) {
                         if (host.sessions.isUsable(validatedData.session)) {
                             if (host.sessions.canUse(validatedData.session, capability, validatedData.task)) {
@@ -176,6 +193,8 @@ export const endpointCapability = new Endpoint<Host>(
                             }
 
                             res.end(JSON.stringify(error));
+
+                            host.sessions.markTombstoneRead(validatedData.session);
                         } else {
                             host.logger.debug("endpoints/capability", "Capability operation denied; not registered session");
                             res.writeHead(404, { "Content-Type": "application/json" });

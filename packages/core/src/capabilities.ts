@@ -26,7 +26,7 @@ export function entriesToCapabilityPermissions(entries: CapabilityConfigEntry[])
     for (const entry of entries) {
         const capability = nameToCapability.get(entry.capability);
 
-        if (capability) {
+        if (capability !== undefined) {
             permissions.push({
                 capability,
                 tasks: entry.tasks
@@ -43,7 +43,7 @@ export function namesToCapabilities(names: string[]): Capability[] {
     for (const name of names) {
         const capability = nameToCapability.get(name);
 
-        if (capability) capabilities.push(capability);
+        if (capability !== undefined) capabilities.push(capability);
     }
 
     return capabilities;

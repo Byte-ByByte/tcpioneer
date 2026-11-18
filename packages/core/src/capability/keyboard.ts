@@ -1,5 +1,6 @@
 import { CapabilityHandler } from "../capabilityHandler";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { Logger, NOPLogger } from "../logger";
 import { once } from "node:events";
 import { Static, Type } from '@sinclair/typebox'
@@ -77,9 +78,41 @@ const aliases = new Map<string, string>([
 
 let logger: Logger = new NOPLogger;
 
-const keyboardBackend = spawn("python", [path.resolve(__dirname, "../../helpers/keyboardBackend.py")], {
+const keyboardBackendPath = [
+    path.resolve(__dirname, "../../helpers/keyboardBackend.py"),
+    path.resolve(__dirname, "../helpers/keyboardBackend.py")
+].find(existsSync);
+
+if (!keyboardBackendPath) {
+    throw new Error("Unable to find the keyboard backend script");
+}
+
+const keyboardBackend = spawn("python", [keyboardBackendPath], {
     stdio: ["pipe", "pipe", "pipe"]
 })
+
+function failPendingRequests(reason: string) {
+    logger.error("python-backend/keyboard", reason);
+
+    for (const [reference, pendingEE] of refEEMap) {
+        pendingEE.emit("response", "ERROR");
+        refEEMap.delete(reference);
+    }
+}
+
+keyboardBackend.on("error", (error) => {
+    failPendingRequests(`Failed to start keyboard backend: ${error.message}`);
+});
+
+keyboardBackend.on("exit", (code, signal) => {
+    if (refEEMap.size > 0) {
+        failPendingRequests(`Keyboard backend exited (code=${code}, signal=${signal})`);
+    }
+});
+
+keyboardBackend.stdin.on("error", (error) => {
+    failPendingRequests(`Failed to write to keyboard backend: ${error.message}`);
+});
 
 if (keyboardBackend.stderr) {
     keyboardBackend.stderr.on("data", (data) => {
@@ -92,7 +125,13 @@ const reader = createInterface({
 });
 
 reader.on("line", (line) => {
-    const response = JSON.parse(line) as KeyboardBackendResponse;
+    let response: KeyboardBackendResponse;
+    try {
+        response = JSON.parse(line) as KeyboardBackendResponse;
+    } catch (error) {
+        failPendingRequests(`Invalid response from keyboard backend: ${String(error)}`);
+        return;
+    }
 
     // Match response.reference to pending request
     const referencedEE = refEEMap.get(response.reference);
@@ -108,10 +147,25 @@ reader.on("line", (line) => {
 async function ipcLogic(res: http.ServerResponse<http.IncomingMessage> & { req: http.IncomingMessage; }, backendRequest: KeyboardBackendRequest) {
     const recieverEE = new EventEmitter<ReferenceEventEmitterEvents>();
     refEEMap.set(backendRequest.reference, recieverEE);
+    const responsePromise = once(recieverEE, "response");
 
-    keyboardBackend.stdin.write(`${JSON.stringify(backendRequest)}\n`); 
+    try {
+        keyboardBackend.stdin.write(`${JSON.stringify(backendRequest)}\n`, (error) => {
+            if (error) {
+                logger.error("python-backend/keyboard", `Failed to send keyboard request: ${error.message}`);
+                recieverEE.emit("response", "ERROR");
+                refEEMap.delete(backendRequest.reference);
+            }
+        });
+    } catch (error) {
+        logger.error("python-backend/keyboard", `Failed to send keyboard request: ${String(error)}`);
+        recieverEE.emit("response", "ERROR");
+        refEEMap.delete(backendRequest.reference);
+    }
     
-    const [backendResponse] = await once(recieverEE, "response");
+    const [backendResponse] = await responsePromise;
+
+    logger.debug("capability/keyboard", `Backend response: ${backendResponse}`)
 
     if (typeof backendResponse !== "string") {
         commonErrors.generalError(res);
@@ -138,7 +192,7 @@ async function ipcLogic(res: http.ServerResponse<http.IncomingMessage> & { req: 
     commonErrors.generalError(res);
 }
 
-const keyboardCapability: CapabilityHandler = async (params, task, host, req, res) => {
+export const keyboardCapability: CapabilityHandler = async (params, task, host, req, res) => {
     logger = host.logger;
     
     if (!Value.Check(keyboardParamsRef, params)) {

@@ -50,7 +50,7 @@ export class Host {
         this.token = config.server.token
         this.guideLocation = config.server.guide.location
         this.shortcutListener = this.shortcutListener.bind(this)
-        this.sessions = new SessionManager(config.server.session.timeout);
+        this.sessions = new SessionManager(config.server.session.timeout * 1000);
         this.tokenSHA256 = createHash("sha256").update(this.token).digest();
         this.newSessionCapabilities = config.server.session.capabilities;
 

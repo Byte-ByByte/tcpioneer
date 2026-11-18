@@ -6,6 +6,11 @@ import { Static, Type } from '@sinclair/typebox'
 import { Value } from '@sinclair/typebox/value'
 import { maxRequestLength } from "./util/constants";
 import { authorizationCheck, AuthStatus } from "./util/authCheck";
+import { FormatRegistry } from "@sinclair/typebox";
+
+FormatRegistry.Set("uuid", (value) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+);
 
 const DeleteSessionRequestRef = Type.Object({
     "session": Type.String({ format: 'uuid' })
@@ -106,6 +111,18 @@ export const endpointDeleteSession = new Endpoint<Host>(
             }
 
             if (!Value.Check(DeleteSessionRequestRef, parsedData)) {
+                const errors = [...Value.Errors(DeleteSessionRequestRef, parsedData)];
+                
+                if (errors.length > 0) {
+                    host.logger.debug(
+                        "endpoints/delete-session",
+                        JSON.stringify(errors.map(e => ({
+                            path: e.path,
+                            message: e.message
+                        })))
+                    );
+                }
+                
                 res.writeHead(400);
                 res.end();
 

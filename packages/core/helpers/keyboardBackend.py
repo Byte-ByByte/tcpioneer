@@ -24,7 +24,7 @@ class KeyboardBackend:
             "reference": reference
         }
 
-        print(json.dumps(response))
+        print(json.dumps(response), flush=True)
 
     def keypress(self, key: str, hold: float | int, reference: str):
         if pyautogui.isValidKey(key):
@@ -75,18 +75,25 @@ class KeyboardBackend:
             data = input()
             parsedData = json.loads(data)
 
-            if (parsedData["exit"]):
+            if parsedData.get("exit", False):
                 break
     
             pressType = parsedData["type"]
+            hold = parsedData.get("hold", 0)
     
-            match pressType:
-                case "keypress":
-                    self.keypress(parsedData["keys"], parsedData["hold"], parsedData["reference"])
-                case "sequence":
-                    self.sequence(parsedData["keys"], parsedData["delay"], parsedData["hold"], parsedData["reference"])
-                case "shortcut":
-                    self.shortcut(parsedData["keys"], parsedData["hold"], parsedData["reference"])
+            try:
+                match pressType:
+                    case "keypress":
+                        self.keypress(parsedData["keys"], hold, parsedData["reference"])
+                    case "sequence":
+                        self.sequence(parsedData["keys"], parsedData.get("delay", 0), hold, parsedData["reference"])
+                    case "shortcut":
+                        self.shortcut(parsedData["keys"], hold, parsedData["reference"])
+                    case _:
+                        self.respond("ERROR", parsedData["reference"])
+            except Exception as e:
+                self.respond("ERROR", parsedData["reference"])
+                print(e, file=sys.stderr, flush=True)
 
 backend = KeyboardBackend()
 

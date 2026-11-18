@@ -18,17 +18,17 @@ export class Session {
     /** When the session will expire and become deleted. */
     readonly expiry: Date
 
-    /** How many milliseconds this session can be unused before the server deletes the session. */
+    /** How many seconds this session can be unused before the server deletes the session. */
     readonly timeout: number
 
     /**
      * Creates a session.
      * @param capabilities Capabilities granted to the session.
      * @param expiry The date this session will expire at.
-     * @param [timeout=60000] How many milliseconds this session can be unused before the server deletes the session.
+     * @param [timeout=60] How many seconds this session can be unused before the server deletes the session.
      * @param unusableUntil The date until the session is usable, or `null`.
      */
-    constructor(permissions: readonly CapabilityPermission[], expiry: Date, timeout: number = 60000, unusableUntil: Date | null = null) {
+    constructor(permissions: readonly CapabilityPermission[], expiry: Date, timeout: number = 60, unusableUntil: Date | null = null) {
         this.key = crypto.randomUUID();
         this.permissions = [...permissions];
         this.unusableUntil = unusableUntil;
@@ -109,7 +109,7 @@ export class SessionManager {
         const timerid = crypto.randomUUID();
 
         const timeout: SessionTimeout = {
-            timeout: setTimeout(this._createTimeoutCallback(session.key, timerid), session.timeout),
+            timeout: setTimeout(this._createTimeoutCallback(session.key, timerid), session.timeout * 1000),
             timerid: timerid
         };
 
